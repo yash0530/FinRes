@@ -70,12 +70,10 @@ def test_labels_each_branch():
     assert s.loc["T15", "label"] == "HOLD"  # composite 0.80
     assert s.loc["T00", "label"] == "AVOID"
     assert s.loc["T19", "grade_composite"] == "A" and s.loc["T00", "grade_composite"] == "F"
-    # live: 2+ of (qual, rev, earnings_yield) missing -> insufficient
+    # ADR-004c: missing quality/revisions/earnings yield only re-weight; never "Insufficient data"
     live = _fac(4, earnings_yield=[0.1, np.nan, 0.1, np.nan], rev_chg=[0.1, 0.2, np.nan, np.nan])
-    s = model.score(live, use_revisions=True)
-    assert s.loc["T00", "label"] != "Insufficient data"
-    assert (s.loc[["T01", "T02", "T03"], "label"] == "Insufficient data").all()  # qual + ey / qual + rev / all
-    assert model.score(live)["label"].ne("Insufficient data").all()  # lab never applies the rule
+    assert model.score(live, use_revisions=True)["label"].ne("Insufficient data").all()
+    assert model.score(live)["label"].ne("Insufficient data").all()
 
 
 def test_rng_signal_overrides_ranking():

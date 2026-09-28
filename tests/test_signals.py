@@ -108,7 +108,7 @@ def test_fund_factors():
     assert out["earnings_yield"] == pytest.approx(100 / 500) and out["speculative"] is False
     assert out["gp_assets"] == 0.4 and out["rev_growth"] == 0.2 and out["fund_missing"] is False
     assert signals.fund_factors({**f, "net_income_ttm": -1.0}, 50.0)["speculative"] is True
-    assert signals.fund_factors({**f, "revenue_ttm": None}, 50.0)["speculative"] is True
+    assert signals.fund_factors({**f, "revenue_ttm": None}, 50.0)["speculative"] is False  # ADR-004c
     assert signals.fund_factors({**f, "net_income_ttm": None}, 50.0)["speculative"] is False
     assert signals.fund_factors({**f, "shares": None}, 50.0)["earnings_yield"] is None
     assert signals.fund_factors(f, None)["earnings_yield"] is None

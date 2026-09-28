@@ -91,7 +91,7 @@ def fund_factors(f: dict | None, close: float | None) -> dict:
         "gp_assets": f.get("gp_assets"),
         "rev_growth": f.get("revenue_growth"),
         "earnings_yield": ni / cap if ni is not None and cap and cap > 0 else None,
-        "speculative": (ni is not None and ni < 0) or f.get("revenue_ttm") is None,
+        "speculative": ni is not None and ni < 0,  # ADR-004c: missing revenue = unknown, not speculative
         "fund_missing": False,
         "fund_pit": f.get("pit", True),
     }

@@ -104,9 +104,7 @@ def score(fac: pd.DataFrame, weights: str = "W1", use_revisions: bool = False,
         df[f"grade_{name}"] = df[name].map(grade)
     c, trend = df["composite"], df["trend"].fillna(False).astype(bool)
     label = np.select([c >= BUY_ZONE, c >= HOLD_FLOOR], [np.where(trend, "BUY", "WATCH"), "HOLD"], "AVOID")
-    insufficient = ~df["eligible"] | c.isna()
-    if use_revisions:
-        insufficient |= df[["qual", "rev", "earnings_yield"]].isna().sum(axis=1) >= 2
+    insufficient = ~df["eligible"] | c.isna()  # missing quality/revisions just re-weight (ADR-004c)
     df["label"] = np.where(insufficient, INSUFFICIENT, label)
     df["reason"] = [reason(r) for _, r in df.iterrows()] if len(df) else []
     return order(df)

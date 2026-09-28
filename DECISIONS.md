@@ -159,3 +159,10 @@ No backtest had been run when this amendment was written, so the pre-registratio
 **Decision.** `model.buy_list` walks the pool in tie-break order and skips any name whose cap group already has `MAX_PER_GROUP = 3` names in this month's list. It applies to every config, the random-portfolio draws that use `buy_list`, and the live app.
 
 **Cost.** In a month where one theme dominates, the model buys lower-ranked names from other groups. That is diversification over conviction, and it is deliberate.
+
+## ADR-004c: "Speculative" = losing money; missing data never blocks a label (2026-09-27, before any backtest run)
+**Context.** In the M5 review, ASML showed "SPEC" and "Insufficient data". ASML files IFRS, so SEC has a few us-gaap facts for it but no revenue. ADR-004 made "revenue missing → speculative", which was meant to catch pre-revenue names such as OKLO, SMR and NNE. Those names also report net losses, so the loss test already catches them.
+**Decisions.**
+- **Speculative** means net income TTM < 0. When revenue is missing, the name is *unknown*, not speculative.
+- **Live app:** when SEC has no revenue for a name, the Yahoo fallback is used (flagged "not point-in-time").
+- **The live "2+ of quality/revisions/earnings-yield missing → Insufficient data" rule is removed.** Missing factors only re-weight, the same as in the lab. "Insufficient data" now only means not eligible: fewer than 273 days of history, a price under $3, or no recent price.
