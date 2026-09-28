@@ -15,6 +15,7 @@ CAPS_FROM = 25_000
 STOP = 0.65
 BRAKE_BREADTH = 0.40
 BRAKE_N = 2
+MAX_PER_GROUP = 3  # ADR-004b: at most 3 of one month's buys from one cap group
 SHIPPED = {"weights": "W1", "gate": "G1", "sell": "S3", "buy": "Nvar"}  # placeholder until ADR-005
 
 NUMERIC = ["gp_assets", "rev_growth", "earnings_yield", "rev_chg", "rev_breadth"]
@@ -120,7 +121,7 @@ def regime(fac: pd.DataFrame, spy_close: float, spy_sma200: float) -> dict:
             "brake": (not spy_above) or breadth is None or breadth < BRAKE_BREADTH}
 
 
-def _capped(tickers, scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str]) -> set[str]:
+def capped(tickers, scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str]) -> set[str]:
     """Names that may receive no new money (caps apply only once the portfolio is >= CAPS_FROM)."""
     port = sum(positions.values())
     if port < CAPS_FROM:
@@ -145,7 +146,7 @@ def buy_pool(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str
     df = scored[scored["eligible"].astype(bool) & scored["composite"].notna()]
     if cfg["gate"] == "G1":
         df = df[df["trend"].astype(bool)]
-    return order(df[~df.index.isin(_capped(df.index, scored, positions, groups))])
+    return order(df[~df.index.isin(capped(df.index, scored, positions, groups))])
 
 
 def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict,
@@ -153,11 +154,20 @@ def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str
     """This month's buys, split equally; [] means carry the cash."""
     pool = buy_pool(scored, positions, groups, cfg)
     if cfg["buy"] == "Nvar":
-        pick = pool[pool["composite"] >= BUY_ZONE].head(MAX_N)
+        pool, limit = pool[pool["composite"] >= BUY_ZONE], MAX_N
     elif cfg["buy"] == "N3":
-        pick = pool.head(3)
+        limit = 3
     else:
         raise ValueError(f"unknown buy rule {cfg['buy']!r}")
+    keep, per_group = [], {}
+    for t in pool.index:  # walk in tie-break order, skipping names whose group already has MAX_PER_GROUP
+        g = groups.get(t) or ("_own", t)
+        if per_group.get(g, 0) < MAX_PER_GROUP:
+            keep.append(t)
+            per_group[g] = per_group.get(g, 0) + 1
+        if len(keep) == limit:
+            break
+    pick = pool.loc[keep]
     if brake:
         pick = pick.head(BRAKE_N)
     n = len(pick)

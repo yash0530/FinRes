@@ -186,3 +186,19 @@ def test_ordinals_and_warnings():
     row = pd.Series({"rev_breadth": -0.5, "speculative": True, "fund_pit": False})
     assert model.warnings(row) == ["EPS revisions negative", "speculative", "not point-in-time fundamentals"]
     assert model.warnings(pd.Series({"rev_breadth": np.nan, "speculative": False, "fund_pit": None})) == []
+
+
+def test_buy_list_max_per_group(monkeypatch):
+    """ADR-004b: one month's buys hold at most MAX_PER_GROUP names from one cap group (skips, keeps order)."""
+    import pandas as pd
+    from finres import model
+    idx = [f"S{i}" for i in range(6)] + ["P0", "P1"]
+    fac = pd.DataFrame({"eligible": True, "trend": True, "mom_raw": range(8, 0, -1), "hi52": 1.0,
+                        "gp_assets": None, "rev_growth": None, "earnings_yield": None, "speculative": False,
+                        "close": 10.0, "n_days": 300, "sma200": 9.0, "above200": True}, index=idx)
+    scored = model.score(fac)
+    groups = {t: ("semis" if t.startswith("S") else "infra") for t in idx}
+    cfg = {"weights": "W1", "gate": "G1", "sell": "S3", "buy": "N3"}
+    assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "S2"]
+    monkeypatch.setattr(model, "MAX_PER_GROUP", 2)
+    assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "P0"]

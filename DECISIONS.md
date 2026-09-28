@@ -152,3 +152,10 @@ No backtest had been run when this amendment was written, so the pre-registratio
 - 12-2 lookback, FIP smoothness, earnings blackout: weak or unverifiable evidence for our setting. They are parked in SOMEDAY.
 - Vol-weighted sizing: contradicts ADR equal weight (DeMiguel).
 - ATR trailing stops: daily monitoring contradicts the once-a-month discipline.
+
+## ADR-004b: At most 3 buys per cap group per month (2026-09-27, before any backtest run)
+**Context.** The first live buy list (M5 smoke test) put 7 of 10 names in the semis group. The 30% group cap only starts once the portfolio reaches $25k, so the first ~10 months would have no diversification at all. No in-sample or out-of-sample result had been seen when this was decided. The lab was still downloading data.
+
+**Decision.** `model.buy_list` walks the pool in tie-break order and skips any name whose cap group already has `MAX_PER_GROUP = 3` names in this month's list. It applies to every config, the random-portfolio draws that use `buy_list`, and the live app.
+
+**Cost.** In a month where one theme dominates, the model buys lower-ranked names from other groups. That is diversification over conviction, and it is deliberate.
