@@ -43,3 +43,21 @@ These are condensed findings behind FinRes's design. The evidence comes mostly f
 - **yfinance 1.7** (curl_cffi): prices, `eps_trend`, `eps_revisions`, `info`, `news`. HTTP 429 blocks are common, so it needs batching, backoff and caching.
 - **SEC EDGAR companyfacts:** free, 10 requests/second, User-Agent required, facts carry a `filed` date so they are point-in-time. Historical analyst estimates are paid-only.
 - **Local LLM:** `llm-serve start splash4` runs LM Studio at `127.0.0.1:8089/v1`, model `qwen-local`. `reasoning_effort` accepts low, medium or xhigh (the template default is xhigh). There is one slot. Health is checked with `GET /v1/models`.
+
+## Addendum — agy literature pass (2026-09-27)
+The full notes are kept out of the repo. Claims are graded by how verifiable they were.
+- **Credible, adopted as tests (ADR-004a):**
+  - A per-stock 200DMA gate may whipsaw on 40–80%-vol names. Faber's evidence is index-level only.
+  - Point-in-time S&P 500 membership is available at [fja05680/sp500](https://github.com/fja05680/sp500).
+  - yfinance has no delisted history (checked: SIVB, TWTR, FRC return no data).
+- **Credible, parked:**
+  - Alpha Architect QMOM uses 12-2 momentum plus frog-in-the-pan smoothness ([Da, Gurun & Warachka 2014](https://academic.oup.com/rfs/article/27/8/2171/1587635)).
+  - Residual momentum ([Blitz et al.](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1777038)).
+- **LLM stock picking:**
+  - No credible out-of-sample live evidence exists for open-source LLM hedge funds (e.g. virattt/ai-hedge-fund).
+  - Headline-sentiment alpha decayed quickly after 2021 ([Lopez-Lira & Tang](https://arxiv.org/abs/2304.07619)).
+  - This supports keeping Qwen as a *narrator* of computed facts, not a signal.
+- **Rejected or unverifiable:**
+  - an "earnings blackout" paper whose citation was a bare ssrn.com link
+  - claims of a July-2024 selloff mechanism as evidence for our design
+  - vol-weighted sizing and ATR stops, which conflict with ADR-004 principles

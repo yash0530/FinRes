@@ -129,3 +129,26 @@ Otherwise ship **B0**, and the app says so.
 - Lookahead tests are green.
 
 **Honesty.** Absolute returns are an upper bound, because of survivorship and hindsight in the universe. About 92 OOS months cannot prove a modest edge. The lab can catch bugs, disasters and fragility. It cannot prove alpha.
+
+## ADR-004a — Amendment before any run: test the stock-level trend gate, point-in-time S&P membership (2026-09-27)
+**Context.** An online literature pass (agy, `docs/research.md` addendum) argued two things:
+- Per-stock 200-day filters whipsaw on volatile tech names, and the trend gate belongs at the market level.
+- A point-in-time S&P 500 membership history exists for free (github.com/fja05680/sp500).
+
+No backtest had been run when this amendment was written, so the pre-registration stays clean.
+
+**Changes to ADR-004**
+- **New grid dimension, gate:**
+  - **G1:** buys require the stock's own Trend (as before).
+  - **G0:** no per-stock gate. The market-level brake still applies, and S2/S3 sells are unchanged.
+- **Weights W4 dropped.** It was quality-tilted and the weakest prior, and dropping it keeps the grid small.
+- **Grid** = {W1, W2, W3} × {G1, G0} × {S1, S2, S3} × {Nvar, N3} = **36 configs**.
+- **Random portfolios** draw from the same pool as the config under test, so the pool respects its gate.
+- **Tie-break order:** fewer sells (S1 < S2 < S3), then G0 before G1 (simpler), then W3 < W1 < W2.
+- **S&P 500 co-gate universe at month *t*** = names that were index members at *t* (fja05680 history) ∩ names with Yahoo prices. Delisted names have no Yahoo data, so some survivorship remains and is documented.
+- **B0** is unchanged: equal-weight across stock-Trend-passing names, with S2 sells.
+
+**Not adopted:**
+- 12-2 lookback, FIP smoothness, earnings blackout: weak or unverifiable evidence for our setting. They are parked in SOMEDAY.
+- Vol-weighted sizing: contradicts ADR equal weight (DeMiguel).
+- ATR trailing stops: daily monitoring contradicts the once-a-month discipline.
