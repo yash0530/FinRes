@@ -1,0 +1,14 @@
+{% macro chip(g) -%}
+<span class="chip g{{ g if g in ['A','B','C','D','F'] else 'x' }}">{{ g or '–' }}</span>
+{%- endmacro %}
+{% macro label(l) -%}
+{%- set k = (l or '')|lower|replace(' data', '') -%}
+<span class="lbl l-{{ k or 'none' }}">{{ l or '–' }}</span>
+{%- endmacro %}
+{% macro signed(v) -%}
+<span class="{{ 'up' if v is number and v > 0 else 'down' if v is number and v < 0 else '' }}">{{ v|spct }}</span>
+{%- endmacro %}
+{% macro tick(t) -%}
+<button type="button" class="tk" hx-get="/analyze?t={{ t|urlencode }}" hx-target="#analysis"
+        hx-swap="innerHTML show:#analyze:top">{{ t }}</button>
+{%- endmacro %}

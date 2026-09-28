@@ -1,0 +1,38 @@
+{% from "_macros.html" import chip, label, signed, tick %}
+<section id="holdings">
+  <h2>Holdings</h2>
+  {% if s.holdings %}
+  <div class="scroll"><table>
+    <thead><tr><th>Ticker</th><th class="n">Shares</th><th class="n">Avg cost</th><th class="n">Last</th>
+      <th class="n">Value</th><th class="n">Weight</th><th class="n">P/L</th><th>Grade</th><th>Label</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for h in s.holdings %}
+      <tr><td>{{ tick(h.ticker) }}</td><td class="n">{{ h.shares|sh }}</td><td class="n">{{ h.cost|money }}</td>
+        <td class="n">{{ h.last|money }}</td><td class="n">{{ h.value|money0 }}</td><td class="n">{{ h.weight|pct }}</td>
+        <td class="n">{{ signed(h.pl) }}</td><td>{{ chip(h.grade) if h.in_universe else '' }}</td>
+        <td>{{ label(h.label) if h.in_universe else '' }}</td>
+        <td class="{{ '' if h.status == 'OK' else 'warn-t' }}">{{ h.status }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td>Total</td><td></td><td class="n">{{ s.totals.cost|money0 }}</td><td></td>
+      <td class="n">{{ s.totals.value|money0 }}</td><td class="n">100%</td>
+      <td class="n">{{ signed(s.totals.value / s.totals.cost - 1 if s.totals.cost else none) }}</td><td colspan="3"></td></tr></tfoot>
+  </table></div>
+  {% else %}
+  <p class="empty">No holdings yet. Paste them below, or click “I placed these buys” after buying.</p>
+  {% endif %}
+  <details {% if errors %}open{% endif %}>
+    <summary>Edit holdings</summary>
+    <form hx-post="/holdings" hx-target="#holdings" hx-swap="outerHTML">
+      <label for="holdings-text" class="small muted">One per line: <code>TICKER SHARES AVG_COST</code> (e.g. <code>NVDA 12 131.40</code>). Saving replaces the whole list.</label>
+      <textarea id="holdings-text" name="text" rows="6" spellcheck="false">{% if text is defined %}{{ text }}{% else %}{% for h in s.holdings %}{{ h.ticker }} {{ '%g'|format(h.shares) }} {{ '%.2f'|format(h.cost) }}
+{% endfor %}{% endif %}</textarea>
+      {% if errors %}
+      <div class="errors" role="alert"><strong>Nothing saved. Fix these lines:</strong>
+        <ul>{% for n, line, why in errors %}<li>Line {{ n }}: <code>{{ line }}</code> — {{ why }}</li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+      <button type="submit">Save holdings</button>
+    </form>
+  </details>
+</section>

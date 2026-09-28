@@ -1,0 +1,14 @@
+<div id="refresh" class="refresh"
+     {% if p.running %}hx-get="/refresh/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if p.running %}
+  <button type="button" disabled>Refreshing…</button>
+  <progress max="{{ p.total or 1 }}" value="{{ p.done }}"></progress>
+  <span class="muted small">step: {{ p.step }} {{ p.done }}/{{ p.total }}{% if p.errors %} · {{ p.errors }} errors{% endif %}</span>
+  {% elif replay %}
+  <button type="button" disabled title="Replay mode never downloads">Refresh</button>
+  <span class="muted small">replay: refresh disabled</span>
+  {% else %}
+  <button type="button" hx-post="/refresh" hx-target="#refresh" hx-swap="outerHTML">Refresh</button>
+  {% if p.finished %}<span class="muted small">last run {{ ((p.finished - p.started) / 60)|round(1) }} min{% if p.errors %} · {{ p.errors }} errors{% endif %}</span>{% endif %}
+  {% endif %}
+</div>

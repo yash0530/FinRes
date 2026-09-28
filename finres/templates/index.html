@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FinRes</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head>
+<body>
+{% from "_macros.html" import chip, label, signed, tick %}
+{% set m = s.meta %}{% set r = s.regime %}{% set replay = m.replay %}
+<header id="header" class="bar">
+  <div class="wrap bar-row">
+    <strong class="brand">FinRes</strong>
+    <span class="muted">{% if m.asof %}Data as of {{ m.asof }} · {{ m.age }} day{{ '' if m.age == 1 else 's' }} old{% else %}No data yet{% endif %}</span>
+    {% include "_progress.html" %}
+    <span class="dot {{ 'on' if m.llm_up else 'off' }}">{% if m.llm_up %}Qwen ready{% else %}Qwen off — run <code>llm-serve start splash4</code>{% endif %}</span>
+  </div>
+  {% if r %}
+  <div class="wrap"><p class="pill {{ 'brake' if r.brake }}">SPY {{ 'above' if r.spy_above200 else 'below' }} 200DMA ·
+    {{ r.breadth|pct }} of universe above 200DMA · Brake {{ 'ON' if r.brake else 'OFF' }}{% if r.brake %}: buys limited to 2 names{% endif %}</p></div>
+  {% endif %}
+  {% if replay %}<div class="banner wrap">Replay as of {{ m.replay_date }}: no downloads, no refresh. Revisions are off (no history).</div>{% endif %}
+  {% if m.asof and s.withheld %}<div class="banner warn wrap">Ranking withheld: only {{ s.coverage|pct }} of the universe has a fresh price (need 90%). Data is shown, but there is no buy/sell plan until a refresh succeeds.</div>{% endif %}
+</header>
+<main class="wrap">
+<section id="plan">
+  <h2>This month’s plan</h2>
+  {% if not m.asof %}
+  <p class="empty">No data yet. The first refresh takes a few minutes; the page reloads when it finishes.</p>
+  {% elif s.withheld %}
+  <p class="empty">Plan hidden while ranking is withheld.</p>
+  {% else %}
+  <div class="card">
+    {% if s.buys %}
+    <h3>Buy with {{ s.budget|money0 }} — {{ s.buys|length }} name{{ 's' if s.buys|length != 1 }} × {{ s.buys[0].dollars|money0 }}</h3>
+    <ol class="buys">
+    {% for b in s.buys %}
+      <li><div class="buy-h">{{ tick(b.ticker) }} <span class="muted small">{{ b.category }}</span> {{ chip(b.grade) }}
+        <span class="n buy-amt">{{ b.dollars|money0 }} ≈ {{ b.shares|sh }} sh @ {{ b.close|money }}</span></div>
+        <div class="reason small">{{ b.reason }}</div></li>
+    {% endfor %}
+    </ol>
+    <button type="button" hx-post="/plan/done" hx-target="#plan-msg"
+            hx-confirm="Record these {{ s.buys|length }} buys at the last close and add them to holdings?">I placed these buys</button>
+    {% else %}
+    <p class="empty">No stock qualifies this month (none in the top 15% with an uptrend). Keep the cash for next month.</p>
+    {% endif %}
+    <div id="plan-msg" aria-live="polite"></div>
+    <h3>Sell</h3>
+    {% if s.sells %}
+    <ul class="sells">{% for x in s.sells %}
+      <li>{{ tick(x.ticker) }} <span class="warn-t">{{ x.rule }}</span> · P/L {{ signed(x.pl) }}
+        <button type="button" class="small-btn" hx-post="/holdings/{{ x.ticker }}/sold"
+                hx-confirm="Remove {{ x.ticker }} from holdings?">Mark sold</button></li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted">Nothing to sell.</p>{% endif %}
+    {% if s.watch %}<h3>Watch</h3>
+    <ul class="watch">{% for w in s.watch %}<li><strong>{{ w.ticker }}</strong>: {{ w.text }}</li>{% endfor %}</ul>{% endif %}
+    <p class="small muted">Model: {{ s.model }} — see DECISIONS ADR-005 · Revisions factor: unvalidated (15%){% if replay %} (off in replay){% endif %}</p>
+  </div>
+  {% endif %}
+</section>
+
+{% include "_holdings.html" %}
+
+<section id="analyze">
+  <h2>Analyze</h2>
+  <form class="row" hx-get="/analyze" hx-target="#analysis" hx-indicator="#an-busy">
+    <label for="t" class="sr">Ticker</label>
+    <input id="t" name="t" placeholder="Any US ticker, e.g. NVDA" autocomplete="off" maxlength="10" required>
+    <button type="submit">Analyze</button> <span id="an-busy" class="htmx-indicator muted small">loading…</span>
+  </form>
+  <div id="analysis"></div>
+</section>
+
+<section id="categories">
+  <h2>Categories</h2>
+  {% for c in s.categories %}
+  <details {% if loop.index <= 2 %}open{% endif %}>
+    <summary>{{ c.name }} — {{ c.counts.BUY }} BUY · {{ c.counts.HOLD }} HOLD{% if c.counts.WATCH %} · {{ c.counts.WATCH }} WATCH{% endif %}{% if c.best %} · best: {{ c.best.ticker }} ({{ c.best.grade_composite }}){% endif %}</summary>
+    <div class="scroll"><table class="cat">
+      <thead><tr><th>Ticker</th><th>Name</th><th class="n">Last</th><th>Comp</th><th>Mom</th><th>Qual</th><th>Rev</th>
+        <th class="n">12-1m</th><th class="n">From high</th><th>Trend</th><th>Label</th><th>Reason</th></tr></thead>
+      <tbody>{% for x in c.rows %}
+        <tr><td>{{ tick(x.ticker) }}{% if x.stale %} <span class="tag">stale</span>{% endif %}{% if x.speculative %} <span class="tag">spec</span>{% endif %}</td>
+          <td class="nm" title="{{ x.name }}">{{ x.name }}</td><td class="n">{{ x.close|money }}</td>
+          <td>{{ chip(x.grade_composite) }}</td><td>{{ chip(x.grade_mom) }}</td><td>{{ chip(x.grade_qual) }}</td><td>{{ chip(x.grade_rev) }}</td>
+          <td class="n">{{ signed(x.ret_12_1) }}</td><td class="n">{{ signed(x.dd_52w) }}</td>
+          <td>{{ '↑' if x.trend else '↓' }}</td><td>{{ label(x.label) }}</td>
+          <td class="rs" title="{{ x.reason }}">{{ x.reason }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% else %}<p class="empty">No data yet.</p>{% endfor %}
+</section>
+
+<section id="track">
+  <h2>Track record</h2>
+  {% set tr = s.track %}
+  {% if tr.rows %}
+  <p>Average pick return {{ signed(tr.avg.ret) }} vs SMH {{ signed(tr.avg.smh) }} vs universe {{ signed(tr.avg.ew) }} over the same windows.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Month</th><th>Ticker</th><th class="n">Price then</th><th class="n">Last</th><th class="n">Return</th>
+      <th class="n">SMH</th><th class="n">EW universe</th></tr></thead>
+    <tbody>{% for x in tr.rows %}
+      <tr><td>{{ x.month }}</td><td>{{ x.ticker }}</td><td class="n">{{ x.price|money }}</td><td class="n">{{ x.last|money }}</td>
+        <td class="n">{{ signed(x.ret) }}</td><td class="n">{{ signed(x.smh) }}</td><td class="n">{{ signed(x.ew) }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="empty">No picks recorded yet — they appear after you click “I placed these buys”.</p>
+  {% endif %}
+  <h3>Backtest (lab)</h3>
+  <p>{% if s.lab %}{{ s.lab.headline }}{% else %}Validation pending — see lab/REPORT.md{% endif %}</p>
+</section>
+</main>
+<footer class="wrap small muted">Research tool, not advice. Rules and evidence: DECISIONS.md · lab/REPORT.md</footer>
+</body>
+</html>

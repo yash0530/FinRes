@@ -1,0 +1,47 @@
+{% from "_macros.html" import chip, label, signed %}
+{% if a.error %}
+<p class="errors" role="alert">{{ a.error }}</p>
+{% else %}
+<article class="card">
+  <header class="card-h">
+    <div><h3>{{ a.ticker }} <span class="muted">{{ a.name }}</span></h3>
+      <p class="small muted">{{ a.sector or '' }}{% if a.industry %} · {{ a.industry }}{% endif %}{% if not a.in_universe %} · not in the universe (percentiles vs universe){% endif %}{% if a.speculative %} · <span class="tag">spec</span>{% endif %}</p></div>
+    <div class="big n">{{ a.price|money }}<div class="small muted">as of {{ a.asof }}</div></div>
+  </header>
+  <dl class="stats">
+    <div><dt>1m</dt><dd>{{ signed(a.ret_1m) }}</dd></div>
+    <div><dt>6m</dt><dd>{{ signed(a.ret_6m) }}</dd></div>
+    <div><dt>12m</dt><dd>{{ signed(a.ret_12m) }}</dd></div>
+    <div><dt>From 52w high</dt><dd>{{ signed(a.dd_52w) }}</dd></div>
+    <div><dt>200DMA</dt><dd>{{ a.sma200|money }}</dd></div>
+    <div><dt>Trend</dt><dd>{{ '↑ passes' if a.trend else '↓ fails' }}</dd></div>
+  </dl>
+  <svg class="spark" viewBox="0 0 600 120" preserveAspectRatio="none" role="img"
+       aria-label="{{ a.ticker }} one-year closes with the 200-day average (dashed)">
+    <polyline class="sp-sma" points="{{ a.spark.sma }}"/>
+    <polyline class="sp-px" points="{{ a.spark.price }}"/>
+  </svg>
+  <div class="scroll"><table>
+    <thead><tr><th>Factor</th><th>Grade</th><th class="n">Pct</th><th>Raw numbers</th><th>What this means</th></tr></thead>
+    <tbody>
+      <tr><td>Momentum</td><td>{{ chip(a.grade_mom) }}</td><td class="n">{{ a.mom|pct }}</td>
+        <td class="n">12-1m {{ a.ret_12_1|spct }} · ÷vol {{ a.mom_raw|num }} · {{ a.hi52|pct }} of high</td>
+        <td>Risk-adjusted 12-1m return and nearness to the 52-week high, vs the universe</td></tr>
+      <tr><td>Quality</td><td>{{ chip(a.grade_qual) }}</td><td class="n">{{ a.qual|pct }}</td>
+        <td class="n">GP/assets {{ a.gp_assets|num }} · revenue TTM {{ a.rev_growth|spct }}</td>
+        <td>Profitability and growth{% if a.fund_pit == false %} (Yahoo, not point-in-time){% endif %}</td></tr>
+      <tr><td>Revisions</td><td>{{ chip(a.grade_rev) }}</td><td class="n">{{ a.rev|pct }}</td>
+        <td class="n">EPS est {{ a.rev_chg|spct }}/90d · breadth {{ a.rev_breadth|num }}</td>
+        <td>Are analysts raising estimates? (unvalidated, 15%)</td></tr>
+      <tr><td><strong>Composite</strong></td><td>{{ chip(a.grade_composite) }}</td><td class="n">{{ a.composite|pct }}</td>
+        <td class="n">earn. yield {{ a.earnings_yield|pct }} · fwd P/E {{ a.forward_pe|num }}</td>
+        <td>Rank in the universe; top 15% with an uptrend = BUY</td></tr>
+    </tbody>
+  </table></div>
+  <p>{{ label(a.label) }} <span class="reason">{{ a.reason }}</span></p>
+  {% if a.warnings %}<p class="watch">Watch: {{ a.warnings|join(' · ') }}</p>{% endif %}
+  {% if a.fund_pit == false %}<p class="small muted">Fundamentals from Yahoo (not point-in-time): this company does not file US-GAAP data with the SEC.</p>{% endif %}
+  <button type="button" id="explain-btn" disabled
+          title="{{ 'Coming soon' if llm_up else 'Qwen off: run llm-serve start splash4' }}">Explain with Qwen</button>
+</article>
+{% endif %}
