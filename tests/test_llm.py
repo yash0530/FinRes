@@ -71,7 +71,7 @@ def test_facts_formatting_and_no_missing_values():
 
 
 def test_prompt_v3_mentions_rule_research_rank_and_sec_8k():
-    assert llm.PROMPT_VERSION == "v3"
+    assert llm.PROMPT_VERSION == "v4"
     assert "rule_status" in llm.SYSTEM and "research_rank_pct" in llm.SYSTEM and "does NOT beat equal weight" in llm.SYSTEM
     assert "model_label" not in llm.SYSTEM and "composite_pct" not in llm.SYSTEM
     assert "sec_8k_last_45d = serious SEC 8-K events in the last 45 days (bankruptcy, delisting notice, auditor change, " \
@@ -93,7 +93,7 @@ def test_explain_json_schema_success(fake):
     q, bodies = fake
     q.append(_resp(content="```json\n" + json.dumps(GOOD) + "\n```"))
     r = llm.explain(ANALYSIS, NEWS)
-    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v3"
+    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v4"
     assert r["grounding"] == {"bad_keys": [], "ungrounded_numbers": []}
     b = bodies[0]
     assert b["response_format"]["type"] == "json_schema" and b["response_format"]["json_schema"]["strict"]
@@ -220,3 +220,8 @@ def test_explain_route_error_has_retry(env, job_reset, monkeypatch):  # noqa: F8
     _wait(job_reset)
     r = env["client"].get("/explain/AA03")
     assert "Qwen timed out" in r.text and "Retry" in r.text and "force=1" in r.text
+
+
+def test_prompt_v4_demands_plain_english():
+    """Keys belong only in evidence; the prose must be readable by a non-specialist."""
+    assert "plain English" in llm.SYSTEM and "never raw key names" in llm.SYSTEM

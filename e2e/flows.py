@@ -172,7 +172,7 @@ def holdings_rows(page) -> list[dict]:
 
 def sells(page) -> dict[str, str]:
     return dict(page.evaluate("""() => [...document.querySelectorAll('ul.sells > li')].map(li =>
-        [li.querySelector('.tk').textContent.trim(), li.querySelector('.warn-t').textContent.trim()])"""))
+        [li.querySelector('.tk').textContent.trim(), li.querySelector('.down').textContent.trim()])"""))
 
 
 def track_rows(page) -> list[tuple[str, str]]:
@@ -339,7 +339,7 @@ def two_me_below(path: str) -> list[str]:
     finally:
         conn.close()
     t = closes.index[-1]
-    me = state._completed_month_ends(closes.index, t)
+    me = state._completed_month_ends(closes.index, t, date.today())
     if len(me) < 2:
         return []
     a1, a0 = signals.above200_at(closes, me[-1]), signals.above200_at(closes, me[-2])
@@ -480,7 +480,9 @@ def f04(R, f):
                                                                              f"“{rows[stop]['status']}”")
     if below:
         f.ok(rows[below]["status"] == "2 month-ends below 200DMA", f"{below}: status “{rows[below]['status']}”")
-    f.ok(rows["COST"]["status"] == "not in universe", f"COST: status “{rows['COST']['status']}”")
+    # ADR-005/M8b: holdings outside the universe get the S2 rules too; otherwise their status is "not in universe"
+    cost_ok = rows["COST"]["status"] in ("not in universe", "2 month-ends below 200DMA", "-35% stop")
+    f.ok(cost_ok, f"COST (outside universe, S2 rules still apply): status “{rows['COST']['status']}”")
     f.ok(rows[rank_low]["status"] == "OK", f"{rank_low} (rank grade {rows[rank_low]['grade']}): status "
                                            f"“{rows[rank_low]['status']}”")
     f.note("statuses: " + "; ".join(f"{t} {r['value']} {r['weight']} {r['pl']} {r['status']}" for t, r in rows.items()))
@@ -505,7 +507,9 @@ def f05(R, f):
         f.note("no 2-month-end candidate existed today, so that rule could not be shown")
     f.ok(rank_low not in s and "rank fell" not in body_text(page), f"no rank-based sell ({rank_low} has rank < 70th pct "
                                                                    "and is not sold)")
-    f.ok(set(s) == {x for x in (stop, below) if x}, "nothing else sold (NVDA gain, COST, held buys are kept)")
+    extra = set(s) - {x for x in (stop, below) if x}
+    f.ok(extra <= {"COST"}, f"nothing else sold except S2 on COST if it is below 200DMA (extra: {sorted(extra) or 'none'})")
+    f.ok(all(v in ("-35% stop", "2 month-ends below 200DMA") for v in s.values()), "only S2 rules fire (no rank sells)")
     b = buys(page)
     order = [x["ticker"] for x in b]
     f.note("buy list now: " + ", ".join(f"{x['ticker']} (hold ${x['held']:,.0f})" for x in b))

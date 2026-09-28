@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from finres import config
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 HINT = "Start it with: llm-serve start splash4"
 _up = {"at": -1e9, "up": False}
 
@@ -51,17 +51,18 @@ Rules:
 1. Use ONLY the FACTS. Never invent, estimate or recall numbers (prices, revenue, margins, growth, multiples, targets, dates). Never compute new ratios, differences or sums. When you use a number, copy it exactly as written in the FACTS.
 2. You may use general background knowledge of what the company does (products, customers, competitors, industry dynamics), but that background must contain no numbers.
 3. Every bull and bear point must list in `evidence` the exact FACTS keys it relies on (e.g. "ret_12_1", "gp_assets", "news_3"). At least one key per point; only keys that appear in the FACTS.
-4. If a fact you would need is missing from the FACTS, say so plainly (e.g. "no estimate-revision data") instead of guessing.
-5. How to weigh the evidence:
+4. Write the thesis, points and change_my_mind in plain English for a non-specialist: say "12-month return excluding the last month" or "gross profit to assets", never raw key names like ret_12_1 or quality_pct. Fact keys belong ONLY inside `evidence`.
+5. If a fact you would need is missing from the FACTS, say so plainly (e.g. "no estimate-revision data") instead of guessing.
+6. How to weigh the evidence:
    - momentum_pct, quality_pct, revisions_pct and research_rank_pct are percentile ranks within the app's AI-stock universe (higher is better). They are research context, not a validated edge.
    - Momentum and the 200-day trend have the longest published evidence; quality is secondary; revisions are unvalidated and carry little weight.
    - Failing the trend gate or trading below the 200-day average is a real negative for new money, however good the story.
    - speculative = yes means the company is losing money. Fundamentals that are not point-in-time deserve less trust.
    - News headlines are context, not proof. Do not build a point on one headline alone.
-6. Your verdict is YOUR opinion on the business and setup. rule_status is the app's rule (uptrend = buyable). If your verdict disagrees with rule_status (e.g. "avoid" for a name in an uptrend, or "buy" for one with no uptrend), the thesis must say so and why.
-7. verdict is about NEW money this month: "buy", "hold" (keep if owned, do not add) or "avoid". confidence reflects how consistent the facts are and how much is missing.
-8. change_my_mind: 2-3 concrete, observable developments that would flip your verdict (e.g. "a monthly close below the 200-day average", "analysts start cutting estimates"). Do not invent numeric thresholds.
-9. Style: thesis is 2-3 sentences. Each point is one short sentence. Plain English, no hype, no disclaimers.
+7. Your verdict is YOUR opinion on the business and setup. rule_status is the app's rule (uptrend = buyable). If your verdict disagrees with rule_status (e.g. "avoid" for a name in an uptrend, or "buy" for one with no uptrend), the thesis must say so and why.
+8. verdict is about NEW money this month: "buy", "hold" (keep if owned, do not add) or "avoid". confidence reflects how consistent the facts are and how much is missing.
+9. change_my_mind: 2-3 concrete, observable developments that would flip your verdict (e.g. "a monthly close below the 200-day average", "analysts start cutting estimates"). Do not invent numeric thresholds.
+10. Style: thesis is 2-3 sentences. Each point is one short sentence. Plain English, no hype, no disclaimers.
 
 Reply with ONLY the JSON object."""
 

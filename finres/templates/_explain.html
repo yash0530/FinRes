@@ -7,7 +7,7 @@
   <p class="note">Qwen is busy explaining {{ job.ticker }} (started {{ elapsed }} s ago). Try again when it finishes.</p>
 {% elif mode == 'poll' %}
   <p class="muted"><progress aria-label="Qwen is thinking"></progress> Qwen is explaining {{ t }}… {{ elapsed }} s ·
-    <span class="small">Qwen xhigh reasoning usually takes 1–3 min (measured 156–172 s)</span></p>
+    <span class="small">Qwen xhigh reasoning usually takes 2–7 min</span></p>
 {% elif mode == 'error' %}
   <p class="errors" role="alert">{{ r.error }}</p>
   <button type="button" hx-post="/explain/{{ t }}?force=1" hx-target="#explain" hx-swap="outerHTML">Retry</button>

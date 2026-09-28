@@ -10,7 +10,7 @@
       <tr><td>{{ tick(h.ticker) }}{{ sec(h.sec_flags) }}</td><td class="n">{{ h.shares|sh }}</td><td class="n">{{ h.cost|money }}</td>
         <td class="n">{{ h.last|money }}</td><td class="n">{{ h.value|money0 }}</td><td class="n">{{ h.weight|pct }}</td>
         <td class="n">{{ signed(h.pl) }}</td><td>{{ chip(h.grade) if h.in_universe else '' }}</td>
-        <td>{{ label(h.rule) if h.in_universe else '' }}</td>
+        <td>{% if h.in_universe %}{{ label(h.rule) }}{% else %}<span class="muted small">outside universe</span>{% endif %}</td>
         <td class="{{ 'down' if h.sell else '' if h.status == 'OK' else 'warn-t' }}">{{ h.status }}</td></tr>
     {% endfor %}
     </tbody>
