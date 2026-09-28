@@ -191,6 +191,12 @@ def twr(ledger: pd.DataFrame) -> np.ndarray:
     return (v[1:] - c[1:]) / v[:-1] - 1
 
 
+def yearly(ledger: pd.DataFrame) -> dict:
+    """Calendar-year time-weighted return per year (context for how often a rule wins, not a selection metric)."""
+    r = pd.Series(twr(ledger), index=pd.to_datetime(ledger["date"].iloc[1:]))
+    return {str(y): float(np.prod(1 + g) - 1) for y, g in r.groupby(r.index.year)}
+
+
 def ledger_xirr(ledger: pd.DataFrame) -> float:
     flows = -ledger["contribution"].to_numpy(float)
     flows[-1] += ledger["value"].iloc[-1]

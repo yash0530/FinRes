@@ -301,6 +301,10 @@ def phase_fidelity(args) -> None:
             out[f"{label}_{per}"] = [row(p_, bt.simulate(ctx, {}, a, b, p_), ewu["ledger"])
                                      for p_ in ("ew_trend", "ew_trend10", "ew_all")]
             print(label, per, " | ".join(f"{r['name']} {r['xirr']:.2%} dd {r['maxdd']:.1%}" for r in out[f"{label}_{per}"]))
+    ctx = load_ctx("ai")
+    runs = {"rule (ew_trend10)": bt.simulate(ctx, {}, *FULL, "ew_trend10")["ledger"],
+            "EWU": bt.simulate(ctx, {}, *FULL, "ew_all")["ledger"], "DCA SMH": bt.dca(ctx, "SMH", *FULL)}
+    out["yearly_ai"] = {k: bt.yearly(v) for k, v in runs.items()}
     _write(RESULTS / "fidelity.json", out, True)
 
 
@@ -366,7 +370,14 @@ def phase_report(args) -> None:
                "`ew_trend10`: 10 uptrend names/month, least-held first (≤3 per group), S2 sells. It should track B0.",
                "| Universe · period | B0 (ew_trend) | Practical (ew_trend10) | EWU |", "|---|---|---|---|",
                *[f"| {k.replace('_', ' · ')} | " + " | ".join(f"{r['xirr']:.1%} (dd {r['maxdd']:.0%})" for r in v) + " |"
-                 for k, v in f.items() if k != "note"], ""]
+                 for k, v in f.items() if k not in ("note", "yearly_ai")], ""]
+    if fid.exists() and "yearly_ai" in f:
+        y = f["yearly_ai"]; names = list(y); years = list(y[names[0]])
+        wins = sum(y[names[0]][k] > y["EWU"][k] for k in years)
+        md += ["## Year by year, AI universe (time-weighted return; context only)",
+               f"The shipped rule beat the equal-weight universe in {wins} of {len(years)} calendar years.",
+               "| Year | " + " | ".join(names) + " |", "|---" * (len(names) + 1) + "|",
+               *[f"| {k} | " + " | ".join(f"{y[n][k]:+.1%}" for n in names) + " |" for k in years], ""]
     md += ["## Bug-fix log", "",
            "- Before the IS run: random portfolios changed to honor the ADR-004b group limit "
            "(`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.", "",

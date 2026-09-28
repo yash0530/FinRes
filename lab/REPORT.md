@@ -112,6 +112,25 @@ B0 buys every uptrend name each month (~60–130 orders). The app ships the prac
 | ai · FULL | 30.3% (dd -32%) | 29.2% (dd -34%) | 26.1% (dd -32%) |
 | sp500 · FULL | 11.1% (dd -24%) | 12.1% (dd -24%) | 13.7% (dd -29%) |
 
+## Year by year, AI universe (time-weighted return; context only)
+The shipped rule beat the equal-weight universe in 8 of 14 calendar years.
+| Year | rule (ew_trend10) | EWU | DCA SMH |
+|---|---|---|---|
+| 2013 | +26.2% | +27.4% | +22.0% |
+| 2014 | +18.7% | +14.1% | +31.3% |
+| 2015 | +4.1% | -6.6% | -1.1% |
+| 2016 | +23.0% | +31.6% | +37.2% |
+| 2017 | +43.0% | +34.5% | +41.9% |
+| 2018 | -6.6% | -10.6% | -10.7% |
+| 2019 | +44.2% | +50.0% | +67.0% |
+| 2020 | +92.4% | +44.6% | +52.3% |
+| 2021 | +24.3% | +41.5% | +45.0% |
+| 2022 | -24.4% | -28.7% | -35.5% |
+| 2023 | +72.3% | +51.7% | +68.8% |
+| 2024 | +64.4% | +31.8% | +45.5% |
+| 2025 | +31.3% | +51.2% | +53.0% |
+| 2026 | +7.2% | +29.6% | +46.1% |
+
 ## Bug-fix log
 
 - Before the IS run: random portfolios changed to honor the ADR-004b group limit (`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.
