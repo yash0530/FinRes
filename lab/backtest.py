@@ -15,7 +15,8 @@ CONTRIB = 2500.0
 COST = 0.0015  # 15 bps per side
 MIN_SCORED = 40  # fewer eligible names -> unscored month (equal-weight into all eligible)
 SLIM = ["eligible", "composite", "trend", "earnings_yield", "speculative", "sma200", "above200", "close"]
-PICKS = ("rank", "random", "random_all", "ew_all", "ew_trend")
+PICKS = ("rank", "random", "random_all", "ew_all", "ew_trend", "ew_trend10")
+ROTATE_N = 10  # ADR-005: practical B0 = 10 uptrend names/month, least-held first
 
 
 def _clean(x) -> bool:
@@ -108,7 +109,7 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
         else:
             scored = scored_at(ctx, t, cfg.get("weights", "W1"))
         positions = {k: s * mark.get(k, px[k]) for k, s in shares.items()}
-        rule = {"ew_all": "S1", "ew_trend": "S2"}.get(pick, cfg.get("sell", "S1"))
+        rule = {"ew_all": "S1", "ew_trend": "S2", "ew_trend10": "S2"}.get(pick, cfg.get("sell", "S1"))
         if unscored and rule == "S3":
             rule = "S2"  # no ranking in an unscored month; stop/trend rules still apply
         holdings = {k: {"cost": basis[k] / shares[k]} for k in shares}
@@ -128,6 +129,10 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             names = list(el)
         elif pick == "ew_trend":
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
+        elif pick == "ew_trend10":  # rotate: least-held uptrend names first, composite breaks ties
+            up = scored[scored["eligible"].astype(bool) & scored["trend"].astype(bool)].index
+            order = sorted(up, key=lambda k: (positions.get(k, 0.0), -float(scored.at[k, "composite"] or 0), k))
+            names = model.take_by_group(order, groups, ROTATE_N)
         elif pick == "rank":
             names = [b["ticker"] for b in model.buy_list(scored, positions, groups, cfg, reg["brake"], budget)]
         else:

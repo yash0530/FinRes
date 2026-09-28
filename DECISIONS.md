@@ -166,3 +166,33 @@ No backtest had been run when this amendment was written, so the pre-registratio
 - **Speculative** means net income TTM < 0. When revenue is missing, the name is *unknown*, not speculative.
 - **Live app:** when SEC has no revenue for a name, the Yahoo fallback is used (flagged "not point-in-time").
 - **The live "2+ of quality/revisions/earnings-yield missing → Insufficient data" rule is removed.** Missing factors only re-weight, the same as in the lab. "Insufficient data" now only means not eligible: fewer than 273 days of history, a price under $3, or no recent price.
+
+## ADR-005: Lab verdict, so FinRes ships B0 (equal-weight uptrend rotation), not the ranking (2026-09-27)
+**Result** (`lab/REPORT.md`). The best in-sample config, W2-G1-S3-Nvar (19.9% XIRR in-sample vs 10.9% for EWU), **failed all three pre-registered out-of-sample gates**:
+- 2019–2026 XIRR was 36.1%, vs 38.6% for B0 and 36.1% for EWU.
+- It ranked at the 38.7th percentile of random portfolios, below the 60th-percentile bar.
+- On point-in-time S&P 500 members over 2013–2026 it returned 8.4% vs 13.7% for EWU (NW t = −1.95).
+
+Per ADR-004, **B0 ships**.
+
+**What that means in plain words.** Within an AI universe, ranking stocks by risk-adjusted momentum and quality did not beat simply owning *all* of them that are in an uptrend. It did not beat picking at random from that uptrend pool either. The ranking added nothing we could measure. What did hold up in the AI universe is the discipline:
+- equal weight
+- only buy names in an uptrend (close > SMA200 and SMA50 > SMA200)
+- sell after two month-ends below the 200DMA, or −35% from cost
+
+**Shipped rules (app):**
+- **Buy:** each month, $2,500 split equally across **10 names that are in an uptrend, least-held first** (the ones you own least of). At most 3 per cap group (ADR-004b). The composite rank only breaks ties between names you hold equally.
+  - This is the practical form of B0. B0 itself would need 60–130 orders a month.
+  - The post-hoc fidelity check shows it tracks B0 closely: 40.3% vs 38.6% out-of-sample, 29.2% vs 30.3% over 2013–2026 in the AI universe.
+- **Sell (S2):** two consecutive month-ends below the 200DMA, or −35% from average cost. No rank-based sells.
+- **No brake, no position or group caps.** B0 was validated without them, and rotating least-held first keeps positions roughly equal anyway. The regime line stays in the header as information only.
+
+**How the ranking is presented now.** The grades and composite remain on the page as *research context*: why a stock is moving, and where it sits against its peers. They are labelled "not validated to beat equal weight". Estimate revisions stay live-only and unvalidated.
+
+**Caveats you must know:**
+1. **Hindsight.** The AI universe was chosen in 2026, so every absolute number above is inflated.
+2. **Broad market.** On the S&P 500, the same trend gate *lagged* equal weight by about 2.5 points a year (11.1% vs 13.7%), with smaller drawdowns (−24% vs −29%). Its value in the AI universe may partly be the hindsight bias again.
+3. **SMH.** Plain monthly DCA into SMH returned **39.9%** out-of-sample, as good as anything tested, with no work and a −39.6% max drawdown. Yash chose individual stocks only. That choice is his, and the app respects it, but the evidence does not say stock-picking in this app beats SMH.
+4. **Power.** About 92 out-of-sample months can catch disasters, not prove an edge.
+
+**Forward test.** The app logs every monthly pick against SMH and against the equal-weight universe (Track record). After 12 or more months, that is the real evidence.

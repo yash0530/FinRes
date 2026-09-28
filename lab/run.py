@@ -290,6 +290,20 @@ def phase_oos(args) -> None:
     _write(RESULTS / "oos.json", out, args.force)
 
 
+def phase_fidelity(args) -> None:
+    """Post-hoc IMPLEMENTATION check (ADR-005), not a selection: does the practical 10-names/month
+    rotation ('ew_trend10') track the validated B0 ('ew_trend') it approximates?"""
+    out = {"note": "post-hoc implementation-fidelity check; B0 was chosen by the pre-registered rule, not by this"}
+    for label, periods in (("ai", {"IS": IS, "OOS": OOS, "FULL": FULL}), ("sp500", {"FULL": FULL})):
+        ctx = load_ctx(label)
+        for per, (a, b) in periods.items():
+            ewu = bt.simulate(ctx, {}, a, b, "ew_all")
+            out[f"{label}_{per}"] = [row(p_, bt.simulate(ctx, {}, a, b, p_), ewu["ledger"])
+                                     for p_ in ("ew_trend", "ew_trend10", "ew_all")]
+            print(label, per, " | ".join(f"{r['name']} {r['xirr']:.2%} dd {r['maxdd']:.1%}" for r in out[f"{label}_{per}"]))
+    _write(RESULTS / "fidelity.json", out, True)
+
+
 # ---------- report ----------
 
 def _p(x) -> str:
@@ -344,7 +358,19 @@ def phase_report(args) -> None:
     elif is_:
         md += ["## Eligible names per year, IS (min / median / max)",
                *[f"- {y}: {v}" for y, v in is_["eligible_by_year"].items()], ""]
-    md += ["## Bug-fix log", "", "(none)", "", "## Honesty",
+    fid = RESULTS / "fidelity.json"
+    if fid.exists():
+        f = json.loads(fid.read_text())
+        md += ["## Implementation fidelity (post-hoc, not a selection)",
+               "B0 buys every uptrend name each month (~60–130 orders). The app ships the practical version "
+               "`ew_trend10`: 10 uptrend names/month, least-held first (≤3 per group), S2 sells. It should track B0.",
+               "| Universe · period | B0 (ew_trend) | Practical (ew_trend10) | EWU |", "|---|---|---|---|",
+               *[f"| {k.replace('_', ' · ')} | " + " | ".join(f"{r['xirr']:.1%} (dd {r['maxdd']:.0%})" for r in v) + " |"
+                 for k, v in f.items() if k != "note"], ""]
+    md += ["## Bug-fix log", "",
+           "- Before the IS run: random portfolios changed to honor the ADR-004b group limit "
+           "(`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.", "",
+           "## Honesty",
            "Absolute returns are an upper bound, because of survivorship and hindsight in the universe. About 92 OOS "
            "months cannot prove a modest edge. The lab can catch bugs, disasters and fragility. It cannot prove alpha.",
            ""]
@@ -355,11 +381,11 @@ def phase_report(args) -> None:
 def main(argv=None) -> None:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m lab.run")
-    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "report"])
+    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "report"])
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="is only: 60 AI tickers, 2015-2016, writes to /tmp")
     args = ap.parse_args(argv)
-    {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "report": phase_report}[
+    {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "fidelity": phase_fidelity, "report": phase_report}[
         args.phase](args)
 
 
