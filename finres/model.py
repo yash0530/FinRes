@@ -147,6 +147,19 @@ def buy_pool(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str
     return order(df[~df.index.isin(capped(df.index, scored, positions, groups))])
 
 
+def take_by_group(tickers: list, groups: dict[str, str], limit: int) -> list:
+    """First `limit` tickers in the given order, skipping any whose group already has MAX_PER_GROUP (ADR-004b)."""
+    keep, per_group = [], {}
+    for t in tickers:
+        g = groups.get(t) or ("_own", t)
+        if per_group.get(g, 0) < MAX_PER_GROUP:
+            keep.append(t)
+            per_group[g] = per_group.get(g, 0) + 1
+        if len(keep) == limit:
+            break
+    return keep
+
+
 def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict,
              brake: bool, budget: float) -> list[dict]:
     """This month's buys, split equally; [] means carry the cash."""
@@ -157,15 +170,7 @@ def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str
         limit = 3
     else:
         raise ValueError(f"unknown buy rule {cfg['buy']!r}")
-    keep, per_group = [], {}
-    for t in pool.index:  # walk in tie-break order, skipping names whose group already has MAX_PER_GROUP
-        g = groups.get(t) or ("_own", t)
-        if per_group.get(g, 0) < MAX_PER_GROUP:
-            keep.append(t)
-            per_group[g] = per_group.get(g, 0) + 1
-        if len(keep) == limit:
-            break
-    pick = pool.loc[keep]
+    pick = pool.loc[take_by_group(list(pool.index), groups, limit)]
     if brake:
         pick = pick.head(BRAKE_N)
     n = len(pick)
