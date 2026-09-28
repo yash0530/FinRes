@@ -196,3 +196,25 @@ Per ADR-004, **B0 ships**.
 4. **Power.** About 92 out-of-sample months can catch disasters, not prove an edge.
 
 **Forward test.** The app logs every monthly pick against SMH and against the equal-weight universe (Track record). After 12 or more months, that is the real evidence.
+
+## ADR-006: News and social media: SEC 8-K red flags only, as warnings (2026-09-27)
+**Question (Yash).** Should FinRes use news, X/Twitter, Reddit, StockTwits?
+
+**Evidence** (`docs/research.md` addendum 2).
+- **Horizon.** News and social sentiment predict returns over hours to about 3 days, not months. Examples: Tetlock 2007, and Lopez-Lira & Tang, where the edge decays within 24–48 hours. Information ratios fall from about 1.5–2.0 at 1 day to below 0.2 at 30 days.
+- **Size.** What predictability exists sits in small, illiquid stocks (Chen, Kelly & Xiu).
+- **Retail attention is contrarian.** Robinhood herding stocks returned −4.7% over the next 20 days (Barber et al. 2022).
+- **Replication.** The famous "Twitter mood predicts the Dow" result failed out of sample.
+- **LLM backtests on historical news leak the future**, because the model has read what happened (Glasserman & Lin).
+- **Access.** X costs about $0.005 per read and has no archive. StockTwits is enterprise-only. Reddit has no point-in-time history since Pushshift closed. None of these can be validated.
+
+**Decision.**
+1. **No sentiment factor and no X/Reddit/StockTwits.** They don't fit the monthly horizon, they're costly or fragile, and they can't be validated.
+2. **Add SEC 8-K "hard news" red flags as warnings:**
+   - **Items flagged:** 1.02 material agreement terminated, 1.03 bankruptcy, 3.01 delisting notice, 4.01 auditor change, 4.02 restatement.
+   - **Window:** the last 45 days.
+   - **Where shown:** on buys, holdings, categories and the Analyze card, and as a fact for Qwen.
+   - **Why this source:** it's free, point-in-time and deterministic.
+   - It is **not a rule**. These events are too rare in this universe to validate, so the buy rule stays ADR-005's, and the warning tells Yash to read the filing before buying.
+3. Headlines stay where they are: 10 Yahoo headlines inside Explain, where Qwen reads them.
+4. **Parked in SOMEDAY:** a Qwen headline red-flag scan of each month's buys, and a retail-attention (mention-spike) caution flag. Both need forward logging before they could ever count.

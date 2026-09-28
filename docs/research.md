@@ -61,3 +61,18 @@ The full notes are kept out of the repo. Claims are graded by how verifiable the
   - an "earnings blackout" paper whose citation was a bare ssrn.com link
   - claims of a July-2024 selloff mechanism as evidence for our design
   - vol-weighted sizing and ATR stops, which conflict with ADR-004 principles
+
+## Addendum 2: news and social sentiment (agy, 2026-09-27)
+- **Monthly horizon.** Sentiment predicts over hours to ~3 days. Examples: [Tetlock 2007](https://doi.org/10.1111/j.1540-6261.2007.01232.x); [Lopez-Lira & Tang](https://arxiv.org/abs/2304.07619), where the edge decays within 24–48h. What predictability exists sits in small caps ([Chen, Kelly & Xiu, NBER w31399](https://www.nber.org/papers/w31399)).
+- **Social data.**
+  - StockTwits works as an echo chamber ([Cookson et al.](https://doi.org/10.1093/rfs/hhac059)).
+  - WallStreetBets due-diligence posts had value before 2021 and predicted *negative* returns afterwards ([Bradley et al.](https://doi.org/10.1093/rfs/hhae008)).
+  - "Twitter mood predicts the Dow" failed to replicate ([Lachanski & Pav](https://econjwatch.org/articles/shy-of-the-character-limit-twitter-mood-predicts-the-stock-market-revisited)).
+- **Retail attention is contrarian.** Robinhood herding stocks returned −4.7% over 20 days ([Barber et al. 2022](https://doi.org/10.1111/jofi.13183)); see also [Barber & Odean 2008](https://doi.org/10.1093/rfs/hhn079).
+- **LLM look-ahead.** Pretrained models "know" historical outcomes, so backtests on old news are contaminated ([Glasserman & Lin](https://arxiv.org/abs/2309.07011)).
+- **Access in 2026** (as reported; not all verified by us):
+  - X is pay-per-read with no free archive.
+  - StockTwits is enterprise-only.
+  - Reddit has free personal OAuth but no point-in-time history.
+  - SEC EDGAR 8-K data is free, point-in-time and has history back to 1994.
+- **What practitioners use text for:** short-horizon trading, execution timing, and *asymmetric risk vetoes* (fraud, auditor exits, dilution). Monthly large-cap return prediction is not on that list. Hence ADR-006.

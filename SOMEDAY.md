@@ -7,3 +7,5 @@ Parked ideas. Nothing here gets built without an explicit decision from Yash **a
 - Forward validation report for estimate revisions, once there are 12 or more months of weekly snapshots.
 - Residual (market- and industry-neutral) momentum, if the universe broadens beyond AI.
 - Momentum refinements from the lit pass: 12-2 lookback, frog-in-the-pan smoothness (information discreteness). These need a *new* pre-registered test; they can't be tuned into the existing lab.
+- Qwen headline red-flag scan of the monthly buys (fraud probe, emergency dilution, major customer loss). This would be a 2nd LLM role. Needs 6–12 months of forward logging (flagged vs clean 30-day returns) before it could matter.
+- Retail-attention caution flag (Reddit/StockTwits mention spikes, contrarian per Barber et al. 2022). Data access is fragile, and there is no point-in-time history.
