@@ -1,0 +1,47 @@
+[
+ {
+  "ticker": "NVDA",
+  "date": "2026-09-25",
+  "close_indep": 225.07,
+  "close_app": 225.07,
+  "ret12_1_indep": 0.1862,
+  "ret12_1_app": 0.1862,
+  "sma200_indep": 199.13,
+  "sma200_app": 199.13,
+  "sma200_yahoo_info": 199.47325,
+  "gross_margin_edgar": 0.7467,
+  "gross_margin_yahoo": 0.74674004,
+  "rev_growth_edgar": 0.8338,
+  "rev_growth_yahoo_quarterly": 1.059
+ },
+ {
+  "ticker": "VST",
+  "date": "2026-09-25",
+  "close_indep": 138.46,
+  "close_app": 138.46,
+  "ret12_1_indep": -0.3041,
+  "ret12_1_app": -0.3041,
+  "sma200_indep": 155.16,
+  "sma200_app": 155.16,
+  "sma200_yahoo_info": 155.643,
+  "gross_margin_edgar": null,
+  "gross_margin_yahoo": 0.38309,
+  "rev_growth_edgar": 0.1861,
+  "rev_growth_yahoo_quarterly": -0.055
+ },
+ {
+  "ticker": "TSM",
+  "date": "2026-09-25",
+  "close_indep": 450.61,
+  "close_app": 450.61,
+  "ret12_1_indep": 0.4997,
+  "ret12_1_app": 0.4997,
+  "sma200_indep": 381.35,
+  "sma200_app": 381.35,
+  "sma200_yahoo_info": 383.1671,
+  "gross_margin_edgar": null,
+  "gross_margin_yahoo": 0.6423,
+  "rev_growth_edgar": null,
+  "rev_growth_yahoo_quarterly": 0.36
+ }
+]
