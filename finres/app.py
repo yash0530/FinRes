@@ -56,7 +56,7 @@ def _step(name: str, total: int) -> None:
 
 
 def _refresh() -> None:
-    """prices -> estimates -> EDGAR -> one snapshot row per ticker for today. Per-ticker failures only count."""
+    """prices -> estimates -> EDGAR -> SEC 8-Ks -> one snapshot row per ticker for today. Per-ticker failures only count."""
     today = date.today().isoformat()
     conn = _conn()
     try:
@@ -87,6 +87,14 @@ def _refresh() -> None:
         for x in tickers:
             try:
                 edgar.companyfacts(x)
+            except Exception:
+                progress["errors"] += 1
+            progress["done"] += 1
+        sec = list(dict.fromkeys(tickers + held))
+        _step("sec 8-K", len(sec))
+        for x in sec:  # submissions JSON -> severe 8-K warnings (cached; page loads never fetch)
+            try:
+                edgar.recent_8k(x, date.today(), max_age_days=1)
             except Exception:
                 progress["errors"] += 1
             progress["done"] += 1

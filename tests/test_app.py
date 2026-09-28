@@ -2,6 +2,7 @@
 import time
 from datetime import date, timedelta
 
+import httpx
 import numpy as np
 import pandas as pd
 import pytest
@@ -46,6 +47,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ASOF", None)
     monkeypatch.setattr(config, "load_universe", lambda *a, **k: UNI)
     monkeypatch.setattr(edgar, "companyfacts", lambda *a, **k: None)
+    monkeypatch.setattr(edgar, "recent_8k", lambda *a, **k: [])
     monkeypatch.setattr(estimates, "snapshot", fake_snapshot)
     calls = []
 
@@ -230,3 +232,55 @@ def test_replay_never_downloads(env, monkeypatch):
     assert "No price data for QQQQ" in c.get("/analyze", params={"t": "QQQQ"}).text
     time.sleep(0.05)
     assert env["downloads"] == [] and not appmod.progress["running"]
+
+
+def test_sec_8k_flags_tag_rows_and_warn_under_buy(env, monkeypatch):
+    c, conn = env["client"], env["conn"]
+    target = state.build(conn)["buys"][0]["ticker"]
+    flag = [{"date": "2026-09-12", "items": ["4.01"], "labels": ["auditor change"]}]
+    calls = []
+
+    def fake(t, asof, days=45, max_age_days=1):
+        calls.append((t, max_age_days))
+        return flag if t == target else []
+
+    monkeypatch.setattr(edgar, "recent_8k", fake)
+    state.clear_cache()
+    c.post("/holdings", data={"text": f"{target} 1 10"})
+    s = state.build(conn)
+    assert calls and all(m is None for _, m in calls)  # page loads are cache-only (never network)
+    rows = {x["ticker"]: x for cat in s["categories"] for x in cat["rows"]}
+    other = next(t for t in rows if t != target)
+    assert rows[target]["sec_flags"] == flag and rows[other]["sec_flags"] == []
+    assert {"ticker": target, "text": "SEC 8-K: auditor change (2026-09-12)"} in s["watch"]
+    html = c.get("/").text
+    assert html.count('class="tag red" title="Serious SEC 8-K in the last 45 days: auditor change (2026-09-12)">8-K</span>') >= 2
+    with conn:
+        conn.execute("DELETE FROM holdings")  # unheld: back in the buy list
+    assert target in [b["ticker"] for b in state.build(conn)["buys"]]
+    html = c.get("/").text
+    assert "⚠ 8-K 4.01 auditor change on 2026-09-12 — read the filing before buying" in html
+    a = state.analyze(conn, target)
+    assert a["sec_flags"] == flag and "SEC 8-K: auditor change (2026-09-12)" in a["warnings"]
+    assert "8-K</span> Watch:" in c.get("/analyze", params={"t": target}).text
+
+
+def test_refresh_fetches_sec_8k_for_universe_and_holdings(env, monkeypatch):
+    c, conn = env["client"], env["conn"]
+    seen = []
+
+    def fake(t, asof, days=45, max_age_days=1):
+        seen.append((t, max_age_days))
+        if t == "AA05":
+            raise httpx.ConnectError("down")
+        return []
+
+    monkeypatch.setattr(edgar, "recent_8k", fake)
+    with conn:
+        conn.execute("INSERT INTO holdings VALUES ('ZZZ', 1, 1, '2026-01-01')")
+    c.post("/refresh")
+    appmod._thread.join(timeout=60)
+    refreshed = [t for t, m in seen if m == 1]
+    assert set(refreshed) == set(UNI["tickers"]) | {"ZZZ"} and len(refreshed) == len(UNI["tickers"]) + 1
+    assert appmod.progress["errors"] >= 1 and appmod.progress["step"] == "done"  # 8-K failure counted, not fatal
+    assert conn.execute("SELECT COUNT(*) FROM snapshot WHERE date = ?", (date.today().isoformat(),)).fetchone()[0] == len(A + B)

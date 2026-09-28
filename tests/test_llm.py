@@ -70,17 +70,30 @@ def test_facts_formatting_and_no_missing_values():
     assert "rule_status" not in llm.facts(dict(ANALYSIS, rule="Insufficient data"), [])
 
 
-def test_prompt_v2_mentions_rule_and_research_rank():
-    assert llm.PROMPT_VERSION == "v2"
+def test_prompt_v3_mentions_rule_research_rank_and_sec_8k():
+    assert llm.PROMPT_VERSION == "v3"
     assert "rule_status" in llm.SYSTEM and "research_rank_pct" in llm.SYSTEM and "does NOT beat equal weight" in llm.SYSTEM
     assert "model_label" not in llm.SYSTEM and "composite_pct" not in llm.SYSTEM
+    assert "sec_8k_last_45d = serious SEC 8-K events in the last 45 days (bankruptcy, delisting notice, auditor change, " \
+           "restatement, material agreement terminated)" in llm.SYSTEM
+
+
+def test_sec_8k_fact():
+    assert llm.facts(ANALYSIS, [])["sec_8k_last_45d"] == "none"
+    assert llm.facts(dict(ANALYSIS, sec_flags=[]), [])["sec_8k_last_45d"] == "none"
+    flags = [{"date": "2026-09-12", "items": ["4.01"], "labels": ["auditor change"]},
+             {"date": "2026-08-20", "items": ["1.02", "4.02"],
+              "labels": ["material agreement terminated", "prior financials unreliable (restatement)"]}]
+    assert llm.facts(dict(ANALYSIS, sec_flags=flags), [])["sec_8k_last_45d"] == (
+        "2026-09-12 Item 4.01 auditor change; 2026-08-20 Item 1.02 material agreement terminated; "
+        "2026-08-20 Item 4.02 prior financials unreliable (restatement)")
 
 
 def test_explain_json_schema_success(fake):
     q, bodies = fake
     q.append(_resp(content="```json\n" + json.dumps(GOOD) + "\n```"))
     r = llm.explain(ANALYSIS, NEWS)
-    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v2"
+    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v3"
     assert r["grounding"] == {"bad_keys": [], "ungrounded_numbers": []}
     b = bodies[0]
     assert b["response_format"]["type"] == "json_schema" and b["response_format"]["json_schema"]["strict"]

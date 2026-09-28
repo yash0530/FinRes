@@ -1,4 +1,4 @@
-{% from "_macros.html" import chip, label, signed, tick %}
+{% from "_macros.html" import chip, label, sec, signed, tick %}
 <section id="holdings">
   <h2>Holdings</h2>
   {% if s.holdings %}
@@ -7,7 +7,7 @@
       <th class="n">Value</th><th class="n">Weight</th><th class="n">P/L</th><th title="Research rank (momentum 60% / quality 40%, +15% revisions live). Not validated to beat equal weight — see lab/REPORT.md">Rank</th><th>Rule</th><th>Status</th></tr></thead>
     <tbody>
     {% for h in s.holdings %}
-      <tr><td>{{ tick(h.ticker) }}</td><td class="n">{{ h.shares|sh }}</td><td class="n">{{ h.cost|money }}</td>
+      <tr><td>{{ tick(h.ticker) }}{{ sec(h.sec_flags) }}</td><td class="n">{{ h.shares|sh }}</td><td class="n">{{ h.cost|money }}</td>
         <td class="n">{{ h.last|money }}</td><td class="n">{{ h.value|money0 }}</td><td class="n">{{ h.weight|pct }}</td>
         <td class="n">{{ signed(h.pl) }}</td><td>{{ chip(h.grade) if h.in_universe else '' }}</td>
         <td>{{ label(h.rule) if h.in_universe else '' }}</td>

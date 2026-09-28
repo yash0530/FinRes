@@ -8,7 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
 </head>
 <body>
-{% from "_macros.html" import chip, label, signed, tick %}
+{% from "_macros.html" import chip, label, sec, signed, tick %}
 {% set m = s.meta %}{% set r = s.regime %}{% set replay = m.replay %}
 <header id="header" class="bar">
   <div class="wrap bar-row">
@@ -38,10 +38,11 @@
     <p class="small muted">Rule (ADR-005): equal dollars into names in an uptrend, the ones you hold least first. The ranking below is research context — it did not beat equal weight in the lab.</p>
     <ol class="buys">
     {% for b in s.buys %}
-      <li><div class="buy-h">{{ tick(b.ticker) }} <span class="muted small">{{ b.category }}</span>
+      <li><div class="buy-h">{{ tick(b.ticker) }}{{ sec(b.sec_flags) }} <span class="muted small">{{ b.category }}</span>
         <span class="muted small">you hold {{ b.held|money0 }}</span>
         <span class="n buy-amt">{{ b.dollars|money0 }} ≈ {{ b.shares|sh }} sh @ {{ b.close|money }}</span></div>
-        <div class="reason small">{{ b.reason }}</div></li>
+        <div class="reason small">{{ b.reason }}</div>
+        {% for f in b.sec_flags or [] %}<div class="sec-t small">⚠ 8-K {{ f['items']|join(', ') }} {{ f['labels']|join(', ') }} on {{ f['date'] }} — read the filing before buying</div>{% endfor %}</li>
     {% endfor %}
     </ol>
     <button type="button" hx-post="/plan/done" hx-target="#plan-msg"
@@ -86,7 +87,7 @@
       <thead><tr><th>Ticker</th><th>Name</th><th class="n">Last</th><th title="Research rank (momentum 60% / quality 40%, +15% revisions live). Not validated to beat equal weight — see lab/REPORT.md">Rank</th><th>Mom</th><th>Qual</th><th>Rev</th>
         <th class="n">12-1m</th><th class="n">From high</th><th>Trend</th><th>Label</th><th>Reason</th></tr></thead>
       <tbody>{% for x in c.rows %}
-        <tr><td>{{ tick(x.ticker) }}{% if x.stale %} <span class="tag">stale</span>{% endif %}{% if x.speculative %} <span class="tag">spec</span>{% endif %}</td>
+        <tr><td>{{ tick(x.ticker) }}{% if x.stale %} <span class="tag">stale</span>{% endif %}{% if x.speculative %} <span class="tag">spec</span>{% endif %}{{ sec(x.sec_flags) }}</td>
           <td class="nm" title="{{ x.name }}">{{ x.name }}</td><td class="n">{{ x.close|money }}</td>
           <td>{{ chip(x.grade_composite) }}</td><td>{{ chip(x.grade_mom) }}</td><td>{{ chip(x.grade_qual) }}</td><td>{{ chip(x.grade_rev) }}</td>
           <td class="n">{{ signed(x.ret_12_1) }}</td><td class="n">{{ signed(x.dd_52w) }}</td>

@@ -1,4 +1,4 @@
-{% from "_macros.html" import chip, label, signed %}
+{% from "_macros.html" import chip, label, sec, signed %}
 {% if a.error %}
 <p class="errors" role="alert">{{ a.error }}</p>
 {% else %}
@@ -40,7 +40,7 @@
     </tbody>
   </table></div>
   <p>{{ label(a.rule) }} <span class="reason">{{ a.reason }}</span></p>
-  {% if a.warnings %}<p class="watch">Watch: {{ a.warnings|join(' · ') }}</p>{% endif %}
+  {% if a.warnings %}<p class="watch">{{ sec(a.sec_flags) }} Watch: {{ a.warnings|join(' · ') }}</p>{% endif %}
   {% if a.fund_pit == false %}<p class="small muted">Fundamentals from Yahoo (not point-in-time): this company does not file US-GAAP data with the SEC.</p>{% endif %}
   <button type="button" id="explain-btn" hx-post="/explain/{{ a.ticker|urlencode }}" hx-target="#explain" hx-swap="outerHTML"
           title="{{ 'Qwen narrates these numbers (1–3 min)' if llm_up else 'Qwen off: run llm-serve start splash4' }}">Explain with Qwen</button>

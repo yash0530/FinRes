@@ -12,3 +12,6 @@
 <button type="button" class="tk" hx-get="/analyze?t={{ t|urlencode }}" hx-target="#analysis"
         hx-swap="innerHTML show:#analyze:top">{{ t }}</button>
 {%- endmacro %}
+{% macro sec(flags) -%}
+{%- if flags %} <span class="tag red" title="Serious SEC 8-K in the last 45 days: {% for f in flags %}{{ f['labels']|join(', ') }} ({{ f['date'] }}){{ '; ' if not loop.last }}{% endfor %}">8-K</span>{% endif -%}
+{%- endmacro %}

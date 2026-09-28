@@ -85,6 +85,44 @@ def companyfacts(ticker: str, max_age_days: float = 7) -> dict | None:
     return data if data.get("facts", {}).get("us-gaap") else None
 
 
+# ---------- 8-K "hard news" (risk warning only, never a buy/sell rule) ----------
+
+SEVERE_8K = {"1.02": "material agreement terminated", "1.03": "bankruptcy/receivership", "3.01": "delisting notice",
+             "4.01": "auditor change", "4.02": "prior financials unreliable (restatement)"}
+
+
+def severe_8k(sub: dict | None, asof: date, days: int = 45) -> list[dict]:
+    """8-K / 8-K/A filings with a SEVERE_8K item, filed in (asof - days, asof): strictly before asof (PIT)."""
+    rec = (sub or {}).get("filings", {}).get("recent", {})
+    lo, out = (asof - timedelta(days=days)).isoformat(), []
+    for form, d, items in zip(rec.get("form", []), rec.get("filingDate", []), rec.get("items", [])):
+        sev = [i for i in (s.strip() for s in (items or "").split(",")) if i in SEVERE_8K]
+        if form in ("8-K", "8-K/A") and lo < d < asof.isoformat() and sev:
+            out.append({"date": d, "items": sev, "labels": [SEVERE_8K[i] for i in sev]})
+    return sorted(out, key=lambda f: f["date"], reverse=True)
+
+
+def recent_8k(ticker: str, asof: date, days: int = 45, max_age_days: float | None = 1) -> list[dict]:
+    """Severe recent 8-Ks from the submissions JSON (gzip cache). max_age_days=None: cache only, never network."""
+    t = ticker.upper()
+    path = EDGAR_DIR / f"{t}.sub.json.gz"
+    if max_age_days is not None and not _fresh(path, max_age_days):
+        ciks = cik_map()
+        cik = ciks.get(t) or ciks.get(t.replace(".", "-"))
+        if cik is None:
+            return []
+        try:
+            r = _get(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")
+            if r.status_code == 404:
+                return []
+            r.raise_for_status()
+            path.write_bytes(gzip.compress(r.content))
+        except httpx.HTTPError:
+            if not path.exists():
+                raise
+    return severe_8k(json.loads(gzip.decompress(path.read_bytes())), asof, days) if path.exists() else []
+
+
 # ---------- parsing ----------
 
 def _d(s: str | None) -> date | None:

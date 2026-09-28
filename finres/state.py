@@ -16,12 +16,30 @@ SNAP_KEYS = ["composite", "grade_mom", "grade_qual", "grade_rev", "grade_composi
              "rev", "rev_chg", "rev_breadth", "trend", "close"]
 _fund_cache: dict[tuple[str, str], dict | None] = {}  # (ticker, asof) -> edgar.fundamentals output
 _est_cache: dict[tuple[str, str], dict] = {}  # (ticker, day) -> estimates.snapshot for out-of-universe analyze
+_sec_cache: dict[tuple[str, str], list] = {}  # (ticker, asof) -> edgar.recent_8k (severe 8-Ks, 45 days)
 
 
 def clear_cache() -> None:
-    """Drop in-process fundamentals/estimates caches (after a refresh re-fetched EDGAR)."""
+    """Drop in-process fundamentals/estimates/8-K caches (after a refresh re-fetched EDGAR)."""
     _fund_cache.clear()
     _est_cache.clear()
+    _sec_cache.clear()
+
+
+def sec_flags(t: str, asof: date | None, fetch: bool = False) -> list[dict]:
+    """Severe SEC 8-Ks in the 45 days before asof. Cache-only unless `fetch` (live analyze of an uncached ticker)."""
+    key = (t, (asof or date.today()).isoformat())
+    if key not in _sec_cache:
+        try:
+            _sec_cache[key] = edgar.recent_8k(t, asof or date.today(), max_age_days=36500 if fetch else None)
+        except Exception:
+            _sec_cache[key] = []
+    return _sec_cache[key]
+
+
+def sec_warnings(flags: list[dict]) -> list[str]:
+    """model.warnings-style notes, e.g. 'SEC 8-K: auditor change (2026-09-12)'."""
+    return [f"SEC 8-K: {', '.join(f['labels'])} ({f['date']})" for f in flags]
 
 
 def clean(v):
@@ -197,11 +215,11 @@ def build(conn, asof: date | None = None) -> dict:
             "ticker": x, "shares": h["shares"], "cost": h["cost"], "last": lp, "value": positions[x],
             "weight": positions[x] / total if total else None, "pl": lp / h["cost"] - 1 if lp and h["cost"] else None,
             "grade": r["grade_composite"] if r is not None else None, "rule": rule_label(r),
-            "in_universe": r is not None,
+            "in_universe": r is not None, "sec_flags": sec_flags(x, asof),
             "status": rule.get(x) or ("not in universe" if r is None else "OK" if rule_label(r) != NO_UPTREND
                                       else "no uptrend (sell after 2 month-ends below 200DMA)")})
-        if r is not None:
-            s["watch"] += [{"ticker": x, "text": w} for w in model.warnings(r) if w != "speculative"]
+        warns = (model.warnings(r) if r is not None else []) + sec_warnings(sec_flags(x, asof))
+        s["watch"] += [{"ticker": x, "text": w} for w in warns if w != "speculative"]
     s["totals"] = {"value": total, "cost": sum(h["shares"] * h["cost"] for h in hold.values())}
     if not s["withheld"]:
         s["sells"] = [dict(x, pl=next(h["pl"] for h in s["holdings"] if h["ticker"] == x["ticker"])) for x in sells]
@@ -209,8 +227,10 @@ def build(conn, asof: date | None = None) -> dict:
         for b in buys:
             x, close = b["ticker"], last.get(b["ticker"])
             b.update(category=u["categories"][u["ticker_category"][x]]["name"], close=close,
-                     shares=b["dollars"] / close if close else None, grade=scored.at[x, "grade_composite"])
-            s["watch"] += [{"ticker": x, "text": w} for w in model.warnings(scored.loc[x]) if w != "speculative"]
+                     shares=b["dollars"] / close if close else None, grade=scored.at[x, "grade_composite"],
+                     sec_flags=sec_flags(x, asof))
+            warns = model.warnings(scored.loc[x]) + sec_warnings(b["sec_flags"])
+            s["watch"] += [{"ticker": x, "text": w} for w in warns if w != "speculative"]
         s["buys"] = buys
 
     # Categories in universe order; rows in scored (tie-break) order, NaN composites last.
@@ -220,10 +240,11 @@ def build(conn, asof: date | None = None) -> dict:
         for x in [x for x in scored.index if u["ticker_category"].get(x) == key]:
             r = row_dict(scored.loc[x])
             raw = fr["raws"].get(x) or {}
-            r.update(ticker=x, name=raw.get("name") or "", rule=rule_label(r), stale=not bool(fresh.get(x, False)) or (live and not raw))
+            r.update(ticker=x, name=raw.get("name") or "", rule=rule_label(r), sec_flags=sec_flags(x, asof),
+                     stale=not bool(fresh.get(x, False)) or (live and not raw))
             rows.append(r)
         rows += [{"ticker": x, "name": (fr["raws"].get(x) or {}).get("name") or "", "stale": True,
-                  "label": model.INSUFFICIENT, "rule": model.INSUFFICIENT,
+                  "label": model.INSUFFICIENT, "rule": model.INSUFFICIENT, "sec_flags": sec_flags(x, asof),
                   "reason": "no price data"}
                  for x in c["tickers"] if x not in scored.index]
         up = sum(r["rule"] == UPTREND for r in rows)
@@ -277,8 +298,10 @@ def analyze(conn, ticker: str, asof: date | None = None) -> dict:
     a, b = [clean(v) for v in s.iloc[-252:]], [clean(v) for v in sma.iloc[-252:]]
     raw = raw or {}
     out = row_dict(row)
+    sec = sec_flags(ticker, asof, fetch=asof is None)
     out.update(ticker=ticker, rule=rule_label(row), name=raw.get("name") or ticker, sector=raw.get("sector"), industry=raw.get("industry"),
-               forward_pe=raw.get("forward_pe"), price=clean(row["close"]), warnings=model.warnings(row),
+               forward_pe=raw.get("forward_pe"), price=clean(row["close"]), warnings=model.warnings(row) + sec_warnings(sec),
+               sec_flags=sec,
                in_universe=ticker in fr["u"]["ticker_category"], asof=fr["t"].date(),
                market_cap=raw.get("market_cap"), eps_rev=raw.get("eps_rev"),  # passthrough for llm.facts
                category=fr["u"]["categories"].get(fr["u"]["ticker_category"].get(ticker), {}).get("name"),

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from finres import config
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 HINT = "Start it with: llm-serve start splash4"
 _up = {"at": -1e9, "up": False}
 
@@ -45,7 +45,7 @@ class Thesis(BaseModel):
 SYSTEM = """You are a skeptical buy-side equity analyst. Your one reader is a long-only individual investor who adds new money to US AI and AI-adjacent stocks once a month and holds for months to years. The app buys by a fixed rule (equal dollars into every name in an uptrend, least-held first); your job is to give an independent, skeptical opinion on the business and setup of ONE stock, not to cheerlead it.
 
 The user message is a FACTS block of `key: value` lines computed by code. It is your ONLY source of numbers.
-Key glossary: ret_12_1 = return from 12 months ago to 1 month ago; from_52w_high = distance below the 52-week high; gp_assets = gross profit / total assets (profitability); revenue_growth_ttm = trailing-twelve-month revenue growth; fy_eps_est_change_90d = change in analysts' fiscal-year EPS estimates over 90 days; eps_revisions_30d = analysts raising vs cutting estimates in 30 days; trend_gate = price above its 200-day average AND 50-day above 200-day; volatility_1y = annualized volatility; research_rank_pct = research rank; the lab found it does NOT beat equal weight — treat as context only; rule_status = what the app's shipped buy/sell rule says about this stock; model_reason = the research ranking's one-line reason.
+Key glossary: ret_12_1 = return from 12 months ago to 1 month ago; from_52w_high = distance below the 52-week high; gp_assets = gross profit / total assets (profitability); revenue_growth_ttm = trailing-twelve-month revenue growth; fy_eps_est_change_90d = change in analysts' fiscal-year EPS estimates over 90 days; eps_revisions_30d = analysts raising vs cutting estimates in 30 days; trend_gate = price above its 200-day average AND 50-day above 200-day; volatility_1y = annualized volatility; research_rank_pct = research rank; the lab found it does NOT beat equal weight — treat as context only; rule_status = what the app's shipped buy/sell rule says about this stock; model_reason = the research ranking's one-line reason; sec_8k_last_45d = serious SEC 8-K events in the last 45 days (bankruptcy, delisting notice, auditor change, restatement, material agreement terminated).
 
 Rules:
 1. Use ONLY the FACTS. Never invent, estimate or recall numbers (prices, revenue, margins, growth, multiples, targets, dates). Never compute new ratios, differences or sums. When you use a number, copy it exactly as written in the FACTS.
@@ -122,6 +122,8 @@ def facts(analysis: dict, news: list[dict]) -> dict[str, str]:
         out["eps_revisions_30d"] = f"{int(rv['up30'])} up / {int(rv['down30'])} down"
     if analysis.get("fund_pit") is not None:
         out["fundamentals_source"] = "SEC point-in-time" if analysis["fund_pit"] else "Yahoo, not point-in-time"
+    out["sec_8k_last_45d"] = "; ".join(f"{f['date']} Item {i} {lb}" for f in analysis.get("sec_flags") or []
+                                       for i, lb in zip(f["items"], f["labels"])) or "none"
     for i, n in enumerate([n for n in news or [] if n.get("title")][:10], 1):
         out[f"news_{i}"] = f"{n.get('date') or 'undated'} · {n.get('publisher') or 'unknown'} · {n['title']}"
     return out
