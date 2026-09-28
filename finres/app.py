@@ -1,10 +1,11 @@
 """FastAPI routes + the single on-demand refresh thread. All math lives in signals.py / model.py."""
+import json
 import math
 import re
 import threading
 import time
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -12,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from finres import config, db, edgar, estimates, prices, state
+from finres import config, db, edgar, estimates, llm, prices, state
 
 HERE = Path(__file__).resolve().parent
 TICKER = re.compile(r"^[A-Z0-9.\-]{1,10}$")
@@ -231,6 +232,83 @@ def sold(ticker: str):
     with closing(_conn()) as conn, conn:
         conn.execute("DELETE FROM holdings WHERE ticker = ?", (ticker.upper(),))
     return HTMLResponse("", headers=REFRESHED)
+
+
+# "Explain with Qwen": ONE job at a time (LM Studio has one slot). Cached per ticker per ISO week.
+_llm_lock = threading.Lock()
+job = {"ticker": None, "status": None, "started": None, "result": None}
+
+
+def _week() -> str:
+    y, w, _ = (config.ASOF or date.today()).isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def _cached(conn, t: str) -> dict | None:
+    row = conn.execute("SELECT json FROM thesis WHERE ticker = ? AND week = ?", (t, _week())).fetchone()
+    rec = json.loads(row["json"]) if row else None
+    return rec if rec and rec.get("prompt_version") == llm.PROMPT_VERSION else None
+
+
+def _explain_job(t: str) -> None:
+    try:
+        with closing(_conn()) as conn:
+            a = state.analyze(conn, t, config.ASOF)
+            if a.get("error"):
+                raise ValueError(a["error"])
+            try:
+                news = estimates.news(t, 10) if config.ASOF is None else []  # live only
+            except Exception:
+                news = []
+            res = llm.explain(a, news)
+            if res["ok"]:
+                created = datetime.now().isoformat(timespec="seconds")
+                res |= {"ticker": t, "model_label": a.get("label"), "created": created}
+                with conn:
+                    conn.execute("INSERT OR REPLACE INTO thesis VALUES (?,?,?,?)", (t, _week(), json.dumps(res), created))
+        job.update(status="done" if res["ok"] else "error", result=res)
+    except Exception as e:
+        job.update(status="error", result={"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+def _explain_view(request: Request, t: str, mode: str, **ctx):
+    return _render(request, "_explain.html", t=t, mode=mode, job=job,
+                   elapsed=round(time.time() - (job["started"] or time.time())), **ctx)
+
+
+@app.post("/explain/{t}", response_class=HTMLResponse)
+def explain_start(request: Request, t: str, force: int = 0):
+    t = t.strip().upper()
+    if not TICKER.match(t):
+        return _explain_view(request, t[:10], "error", r={"error": "Not a valid ticker."})
+    if not force:
+        with closing(_conn()) as conn:
+            rec = _cached(conn, t)
+        if rec:
+            return _explain_view(request, t, "card", r=rec, cached=True)
+    if not llm.up():
+        return _explain_view(request, t, "off")
+    with _llm_lock:
+        if job["status"] == "running" and job["ticker"] != t:
+            return _explain_view(request, t, "busy")
+        if job["status"] != "running":
+            job.update(ticker=t, status="running", started=time.time(), result=None)
+            threading.Thread(target=_explain_job, args=(t,), name="finres-explain", daemon=True).start()
+    return _explain_view(request, t, "poll")
+
+
+@app.get("/explain/{t}", response_class=HTMLResponse)
+def explain_status(request: Request, t: str):
+    t = t.strip().upper()
+    if job["ticker"] == t and job["status"] == "running":
+        return _explain_view(request, t, "poll")
+    if job["ticker"] == t and job["status"] == "error":
+        return _explain_view(request, t, "error", r=job["result"])
+    with closing(_conn()) as conn:
+        rec = _cached(conn, t) if TICKER.match(t) else None
+    if job["ticker"] == t and job["status"] == "done":
+        rec = job["result"]
+    return _explain_view(request, t, "card", r=rec, cached=False) if rec else _explain_view(request, t, "none")
 
 
 @app.get("/health")

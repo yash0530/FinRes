@@ -41,7 +41,8 @@
   <p>{{ label(a.label) }} <span class="reason">{{ a.reason }}</span></p>
   {% if a.warnings %}<p class="watch">Watch: {{ a.warnings|join(' · ') }}</p>{% endif %}
   {% if a.fund_pit == false %}<p class="small muted">Fundamentals from Yahoo (not point-in-time): this company does not file US-GAAP data with the SEC.</p>{% endif %}
-  <button type="button" id="explain-btn" disabled
-          title="{{ 'Coming soon' if llm_up else 'Qwen off: run llm-serve start splash4' }}">Explain with Qwen</button>
+  <button type="button" id="explain-btn" hx-post="/explain/{{ a.ticker|urlencode }}" hx-target="#explain" hx-swap="outerHTML"
+          title="{{ 'Qwen narrates these numbers (1–3 min)' if llm_up else 'Qwen off: run llm-serve start splash4' }}">Explain with Qwen</button>
+  <div id="explain" aria-live="polite"></div>
 </article>
 {% endif %}

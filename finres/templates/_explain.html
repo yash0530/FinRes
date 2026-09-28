@@ -1,0 +1,36 @@
+{% from "_macros.html" import label %}
+<div id="explain" class="explain" aria-live="polite"
+     {% if mode == 'poll' %}hx-get="/explain/{{ t }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+{% if mode == 'off' %}
+  <p class="note">Qwen is off. Start it with <code>llm-serve start splash4</code>, then click again.</p>
+{% elif mode == 'busy' %}
+  <p class="note">Qwen is busy explaining {{ job.ticker }} (started {{ elapsed }} s ago). Try again when it finishes.</p>
+{% elif mode == 'poll' %}
+  <p class="muted"><progress aria-label="Qwen is thinking"></progress> Qwen is explaining {{ t }}… {{ elapsed }} s ·
+    <span class="small">Qwen xhigh reasoning usually takes 1–3 min (measured 156–172 s)</span></p>
+{% elif mode == 'error' %}
+  <p class="errors" role="alert">{{ r.error }}</p>
+  <button type="button" hx-post="/explain/{{ t }}?force=1" hx-target="#explain" hx-swap="outerHTML">Retry</button>
+{% elif mode == 'card' %}{% set d = r.data %}{% set g = r.grounding %}
+  {% set agree = d.verdict|upper == (r.model_label or '')|upper %}
+  <h3>Qwen: {{ label(d.verdict|upper) }} <span class="muted">({{ d.confidence }})</span> · Model: {{ label(r.model_label) }}
+    {% if not agree %}<span class="tag">disagrees</span>{% endif %}
+    {% if cached %}<span class="tag">cached this week</span>{% endif %}</h3>
+  <p>{{ d.thesis }}</p>
+  <div class="bb">
+    {% for title, pts in [('Bull', d.bull), ('Bear', d.bear)] %}
+    <div><h4>{{ title }}</h4><ul>{% for p in pts %}
+      <li>{{ p.point }} <span class="ev">{{ p.evidence|join(', ') }}</span></li>{% endfor %}</ul></div>
+    {% endfor %}
+  </div>
+  <h4>What would change my mind</h4>
+  <ul>{% for x in d.change_my_mind %}<li>{{ x }}</li>{% endfor %}</ul>
+  {% if g.ungrounded_numbers or g.bad_keys %}
+  <p class="gbox bad">{% if g.ungrounded_numbers %}Numbers not found in the data: {{ g.ungrounded_numbers|join(', ') }}{% endif %}
+    {% if g.bad_keys %}{% if g.ungrounded_numbers %} · {% endif %}Unknown evidence keys: {{ g.bad_keys|join(', ') }}{% endif %}</p>
+  {% else %}<p class="gbox ok">All numbers traced to the data</p>{% endif %}
+  <p class="small muted">Qwen 3.8 (local) · xhigh · {{ r.seconds }} s · {{ r.prompt_version }} · {{ r.created }} · cached until Sunday ·
+    <button type="button" class="small-btn" hx-post="/explain/{{ t }}?force=1" hx-target="#explain" hx-swap="outerHTML">Regenerate</button></p>
+  <p class="small muted">An opinion on the model’s numbers; it never changes the buy/sell plan.</p>
+{% endif %}
+</div>

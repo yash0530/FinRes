@@ -1,13 +1,11 @@
 """Everything the page needs, loaded from the DB. No math here: signals.py / model.py do all of it."""
 import json
 import math
-import time
 from datetime import date
 
-import httpx
 import pandas as pd
 
-from finres import config, db, edgar, estimates, model, prices, signals
+from finres import config, db, edgar, estimates, llm, model, prices, signals
 
 BUDGET = 2500.0
 FRESH_ROWS = 5  # a close within the last 5 trading rows counts as fresh
@@ -17,7 +15,6 @@ SNAP_KEYS = ["composite", "grade_mom", "grade_qual", "grade_rev", "grade_composi
              "rev", "rev_chg", "rev_breadth", "trend", "close"]
 _fund_cache: dict[tuple[str, str], dict | None] = {}  # (ticker, asof) -> edgar.fundamentals output
 _est_cache: dict[tuple[str, str], dict] = {}  # (ticker, day) -> estimates.snapshot for out-of-universe analyze
-_llm = {"at": -1e9, "up": False}
 
 
 def clear_cache() -> None:
@@ -40,14 +37,8 @@ def row_dict(r: pd.Series) -> dict:
 
 
 def llm_up() -> bool:
-    """Is the local LLM server answering? One 1 s probe, cached 30 s."""
-    if time.monotonic() - _llm["at"] > 30:
-        try:
-            _llm["up"] = httpx.get(f"{config.LLM_URL}/models", timeout=1).status_code == 200
-        except httpx.HTTPError:
-            _llm["up"] = False
-        _llm["at"] = time.monotonic()
-    return _llm["up"]
+    """Is the local LLM server answering? (llm.up: one 1 s probe, cached 30 s)."""
+    return llm.up()
 
 
 def _fund(t: str, asof: date | None, close, raw: dict | None) -> dict:
@@ -282,5 +273,7 @@ def analyze(conn, ticker: str, asof: date | None = None) -> dict:
     out.update(ticker=ticker, name=raw.get("name") or ticker, sector=raw.get("sector"), industry=raw.get("industry"),
                forward_pe=raw.get("forward_pe"), price=clean(row["close"]), warnings=model.warnings(row),
                in_universe=ticker in fr["u"]["ticker_category"], asof=fr["t"].date(),
+               market_cap=raw.get("market_cap"), eps_rev=raw.get("eps_rev"),  # passthrough for llm.facts
+               category=fr["u"]["categories"].get(fr["u"]["ticker_category"].get(ticker), {}).get("name"),
                closes=a, sma200_series=b, spark=_spark(a, b))
     return out

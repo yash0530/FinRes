@@ -112,6 +112,14 @@ td.rs { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space
 .spark { width: 100%; height: 120px; display: block; margin: .4rem 0 .8rem; }
 .sp-px { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .sp-sma { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.explain { margin-top: .6rem; }
+.explain h4 { margin: .6rem 0 .2rem; font-size: .9rem; }
+.explain ul { margin: .2rem 0; padding-left: 1.2rem; }
+.bb { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 1.2rem; }
+.ev { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+.gbox { padding: .35rem .7rem; border-radius: 4px; font-size: .88rem; }
+.gbox.ok { background: var(--gB); color: var(--gB-t); }
+.gbox.bad { background: var(--amber-bg); color: var(--amber); }
 .htmx-indicator { opacity: 0; transition: opacity .2s; }
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
 footer { margin: 3rem auto 2rem; padding-top: .6rem; border-top: 1px solid var(--rule); }
