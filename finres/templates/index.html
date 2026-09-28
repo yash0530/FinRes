@@ -54,7 +54,7 @@
     <h3>Sell</h3>
     {% if s.sells %}
     <ul class="sells">{% for x in s.sells %}
-      <li>{{ tick(x.ticker) }} <span class="warn-t">{{ x.rule }}</span> · P/L {{ signed(x.pl) }}
+      <li>{{ tick(x.ticker) }} <span class="down">{{ x.rule }}</span> · P/L {{ signed(x.pl) }}
         <button type="button" class="small-btn" hx-post="/holdings/{{ x.ticker }}/sold"
                 hx-confirm="Remove {{ x.ticker }} from holdings?">Mark sold</button></li>
     {% endfor %}</ul>

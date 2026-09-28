@@ -20,21 +20,20 @@ _sec_cache: dict[tuple[str, str], list] = {}  # (ticker, asof) -> edgar.recent_8
 
 
 def clear_cache() -> None:
-    """Drop in-process fundamentals/estimates/8-K caches (after a refresh re-fetched EDGAR)."""
-    _fund_cache.clear()
-    _est_cache.clear()
-    _sec_cache.clear()
+    """Drop in-process caches (after a refresh re-fetched EDGAR). Rebinds, so readers holding the old dict finish safely."""
+    global _fund_cache, _est_cache, _sec_cache
+    _fund_cache, _est_cache, _sec_cache = {}, {}, {}
 
 
 def sec_flags(t: str, asof: date | None, fetch: bool = False) -> list[dict]:
     """Severe SEC 8-Ks in the 45 days before asof. Cache-only unless `fetch` (live analyze of an uncached ticker)."""
-    key = (t, (asof or date.today()).isoformat())
-    if key not in _sec_cache:
+    key, cache = (t, (asof or date.today()).isoformat()), _sec_cache  # the module dict as of this call
+    if key not in cache:
         try:
-            _sec_cache[key] = edgar.recent_8k(t, asof or date.today(), max_age_days=36500 if fetch else None)
+            cache[key] = edgar.recent_8k(t, asof or date.today(), max_age_days=36500 if fetch else None)
         except Exception:
-            _sec_cache[key] = []
-    return _sec_cache[key]
+            cache[key] = []
+    return cache[key]
 
 
 def sec_warnings(flags: list[dict]) -> list[str]:
@@ -70,14 +69,14 @@ def llm_up() -> bool:
 def _fund(t: str, asof: date | None, close, raw: dict | None) -> dict:
     """Quality inputs: EDGAR point-in-time; live-only Yahoo fallback (not PIT) when EDGAR has no us-gaap facts."""
     day = asof or date.today()
-    key = (t, day.isoformat())
-    if key not in _fund_cache:
+    key, cache = (t, day.isoformat()), _fund_cache
+    if key not in cache:
         try:  # huge max_age: page loads read the cache; only /refresh re-fetches (7-day default)
             facts = edgar.companyfacts(t, max_age_days=36500)
         except Exception:
             facts = None
-        _fund_cache[key] = edgar.fundamentals(facts, day) if facts else None
-    f = _fund_cache[key]
+        cache[key] = edgar.fundamentals(facts, day) if facts else None
+    f = cache[key]
     out = signals.fund_factors(f, close)
     if (f is None or f.get("revenue_ttm") is None) and asof is None and raw:  # no/partial us-gaap (IFRS filers)
         eps, px = raw.get("trailing_eps"), raw.get("price") or clean(close)
@@ -121,10 +120,12 @@ def snapshot_factors(fr: dict | None, x: str) -> dict:
     return {k: clean(r.get(k)) for k in SNAP_KEYS}
 
 
-def _completed_month_ends(index: pd.DatetimeIndex, t: pd.Timestamp) -> list[pd.Timestamp]:
-    """Month-ends <= t, dropping t's month unless t is its last business day."""
+def _completed_month_ends(index: pd.DatetimeIndex, t: pd.Timestamp, ref: date) -> list[pd.Timestamp]:
+    """Month-ends <= t, dropping t's month unless t is its last business day or `ref` (today/replay, rolled to the
+    next business day: Sat 2024-03-30 -> Mon 04-01, after Good Friday) is in a later month."""
     me = signals.month_ends(index[index <= t])
-    if me and (t + pd.offsets.BDay(1)).month == t.month:
+    nxt = pd.Timestamp(ref) + pd.offsets.BDay(0)
+    if me and (t + pd.offsets.BDay(1)).month == t.month and (nxt.year, nxt.month) <= (t.year, t.month):
         me = me[:-1]
     return me
 
@@ -153,7 +154,7 @@ def _lab() -> dict | None:
 
 
 def _track(conn, fr: dict | None) -> dict:
-    """Live picks vs SMH and the equal-weight universe over the same window (month's first close -> last)."""
+    """Live picks vs SMH and the equal-weight universe over the same window (pick's close date d -> last)."""
     picks = conn.execute("SELECT * FROM picks ORDER BY month DESC, rank").fetchall()
     rows = []
     if fr is not None:
@@ -161,8 +162,12 @@ def _track(conn, fr: dict | None) -> dict:
         last = ff.iloc[-1]
         uni = [x for x in fr["u"]["tickers"] if x in ff.columns]
         for p in picks:
-            after = ff.index[ff.index >= pd.Timestamp(p["month"] + "-01")]
-            base = ff.loc[after[0]] if len(after) else None
+            if p["d"]:  # base = the close the pick price came from (on/before d), same as the pick's
+                upto = ff.loc[:pd.Timestamp(p["d"])]
+                base = upto.iloc[-1] if len(upto) else None
+            else:  # pre-M8b rows: the month's first close
+                after = ff.index[ff.index >= pd.Timestamp(p["month"] + "-01")]
+                base = ff.loc[after[0]] if len(after) else None
             lp = clean(last.get(p["ticker"]))
             rows.append({"month": p["month"], "ticker": p["ticker"], "price": p["price"], "last": lp,
                          "ret": lp / p["price"] - 1 if lp and p["price"] else None,
@@ -178,7 +183,13 @@ def build(conn, asof: date | None = None) -> dict:
     s = {"meta": _meta(conn, fr, asof), "buys": [], "sells": [], "watch": [], "holdings": [], "totals": None,
          "categories": [], "regime": None, "coverage": 0.0, "withheld": True, "track": _track(conn, fr),
          "lab": _lab(), "model": f"{model.SHIPPED['buy']} · {model.SHIPPED['sell']}", "budget": BUDGET}
-    if fr is None:
+    hold = {r["ticker"]: {"shares": r["shares"], "cost": r["cost"]}
+            for r in conn.execute("SELECT * FROM holdings ORDER BY ticker")}
+    if fr is None:  # no prices: still list saved holdings, value unknown
+        s["holdings"] = [dict(ticker=x, **h, last=None, value=None, weight=None, pl=None, grade=None, sell=False,
+                              rule=model.INSUFFICIENT, in_universe=False, sec_flags=[], status="no price data")
+                         for x, h in hold.items()]
+        s["totals"] = {"value": None, "cost": sum(h["shares"] * h["cost"] for h in hold.values())}
         return s
     u, closes, scored, fac_all = fr["u"], fr["closes"], fr["scored"], fr["fac_all"]
     last = {c: float(v) for c, v in closes.ffill().iloc[-1].items() if pd.notna(v)}
@@ -191,20 +202,20 @@ def build(conn, asof: date | None = None) -> dict:
     s["regime"]["uptrend"] = float(el["trend"].fillna(False).astype(bool).mean()) if len(el) else None
 
     # Holdings, positions and sells.
-    hold = {r["ticker"]: {"shares": r["shares"], "cost": r["cost"]}
-            for r in conn.execute("SELECT * FROM holdings ORDER BY ticker")}
     positions = {x: h["shares"] * last.get(x, h["cost"]) for x, h in hold.items()}
     # S2 "two consecutive month-ends below 200DMA" is judged on the last two COMPLETED month-ends ME0 < ME1,
-    # not on today's close: the row's `above200` is replaced by its state at ME1, `below200_prev` is ME0's.
-    # The -35% stop uses the latest close.
-    me = _completed_month_ends(closes.index, fr["t"])
-    sell_frame, below_prev = scored.copy(), set()
+    # not on today's close: sma200/above200 come from ME1, `below200_prev` from ME0, over ALL loaded columns
+    # (held out-of-universe names too). A missing SMA200 never counts as below. The -35% stop uses the latest close.
+    me = _completed_month_ends(closes.index, fr["t"], asof or date.today())
+    sell_frame = fac_all.loc[[x for x in hold if x in fac_all.index]].copy()
+    sell_frame["composite"] = scored["composite"].reindex(sell_frame.index)  # rank rules (S3) still see it
+    below_prev = set()
     if len(me) >= 2:
-        sig1, sig0 = signals.above200_at(closes, me[-1]), signals.above200_at(closes, me[-2])
-        sell_frame["above200"] = sig1.reindex(sell_frame.index).fillna(False).astype(bool)
-        below_prev = {x for x, v in sig0.items() if not v}
+        f0, f1 = signals.factors_at(closes, me[-2]), signals.factors_at(closes, me[-1])
+        below_prev = set(f0.index[f0["sma200"].notna() & ~f0["above200"]])
+        sell_frame["sma200"], sell_frame["above200"] = f1["sma200"], f1["above200"]
     else:
-        sell_frame["above200"] = True  # not enough history: the trend rule cannot fire
+        sell_frame["sma200"] = math.nan  # not enough completed month-ends: the trend rule cannot fire
     sells = model.sell_list(sell_frame, hold, last, below_prev, model.SHIPPED)
     rule = {x["ticker"]: x["rule"] for x in sells}
     total = sum(positions.values())
@@ -215,9 +226,9 @@ def build(conn, asof: date | None = None) -> dict:
             "ticker": x, "shares": h["shares"], "cost": h["cost"], "last": lp, "value": positions[x],
             "weight": positions[x] / total if total else None, "pl": lp / h["cost"] - 1 if lp and h["cost"] else None,
             "grade": r["grade_composite"] if r is not None else None, "rule": rule_label(r),
-            "in_universe": r is not None, "sec_flags": sec_flags(x, asof),
+            "in_universe": r is not None, "sec_flags": sec_flags(x, asof), "sell": x in rule,
             "status": rule.get(x) or ("not in universe" if r is None else "OK" if rule_label(r) != NO_UPTREND
-                                      else "no uptrend (sell after 2 month-ends below 200DMA)")})
+                                      else "watching: no uptrend. Sells after 2 month-ends below 200DMA")})
         warns = (model.warnings(r) if r is not None else []) + sec_warnings(sec_flags(x, asof))
         s["watch"] += [{"ticker": x, "text": w} for w in warns if w != "speculative"]
     s["totals"] = {"value": total, "cost": sum(h["shares"] * h["cost"] for h in hold.values())}
@@ -254,13 +265,13 @@ def build(conn, asof: date | None = None) -> dict:
 
 
 def _estimates(t: str) -> dict | None:
-    key = (t, date.today().isoformat())
-    if key not in _est_cache:
+    key, cache = (t, date.today().isoformat()), _est_cache
+    if key not in cache:
         try:
-            _est_cache[key] = estimates.snapshot(t)
+            cache[key] = estimates.snapshot(t)
         except Exception:
             return None
-    return _est_cache[key]
+    return cache[key]
 
 
 def _spark(a: list, b: list, w: int = 600, h: int = 120) -> dict:

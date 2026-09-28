@@ -215,15 +215,16 @@ def plan_done():
     """Record this month's buys in the picks ledger and add them to holdings (idempotent per month)."""
     with closing(_conn()) as conn:
         s = state.build(conn, config.ASOF)
-        if s["meta"]["asof"] is None or not s["buys"]:
+        buys = [b for b in s["buys"] if b.get("close") is not None and b.get("shares") is not None]  # no price: skip
+        if s["meta"]["asof"] is None or not buys:
             return HTMLResponse('<p class="note">Nothing to record: there are no buys this month.</p>')
-        month = s["meta"]["asof"].strftime("%Y-%m")
+        month, d = s["meta"]["asof"].strftime("%Y-%m"), s["meta"]["asof"].isoformat()
         if conn.execute("SELECT 1 FROM picks WHERE month = ?", (month,)).fetchone():
             return HTMLResponse(f'<p class="note">Already recorded for {month}.</p>')
         with conn:
-            for rank, b in enumerate(s["buys"], 1):
-                conn.execute("INSERT OR IGNORE INTO picks VALUES (?,?,?,?,?)",
-                             (month, b["ticker"], b["close"], rank, b["reason"]))
+            for rank, b in enumerate(buys, 1):
+                conn.execute("INSERT OR IGNORE INTO picks (month, ticker, price, rank, reason, d) VALUES (?,?,?,?,?,?)",
+                             (month, b["ticker"], b["close"], rank, b["reason"], d))
                 h = conn.execute("SELECT shares, cost FROM holdings WHERE ticker = ?", (b["ticker"],)).fetchone()
                 if h:
                     total = h["shares"] + b["shares"]

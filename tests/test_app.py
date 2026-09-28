@@ -150,7 +150,8 @@ def test_page_shows_rule_labels_not_ranking_labels(env):
     for word in ("at cap", "Brake", "BUY", "AVOID", "WATCH"):
         assert word not in html, word
     assert "UPTREND" in html and "NO UPTREND" in html and "in uptrend" in html and "top research rank" in html
-    assert "no uptrend (sell after 2 month-ends below 200DMA)" in html and 'class="warn-t">2 month-ends below 200DMA' in html
+    assert 'class="warn-t">watching: no uptrend. Sells after 2 month-ends below 200DMA' in html
+    assert 'class="down">2 month-ends below 200DMA' in html  # red only for an actual sell
     assert 'title="Research rank (momentum 60% / quality 40%' in html
 
 
@@ -284,3 +285,118 @@ def test_refresh_fetches_sec_8k_for_universe_and_holdings(env, monkeypatch):
     assert set(refreshed) == set(UNI["tickers"]) | {"ZZZ"} and len(refreshed) == len(UNI["tickers"]) + 1
     assert appmod.progress["errors"] >= 1 and appmod.progress["step"] == "done"  # 8-K failure counted, not fatal
     assert conn.execute("SELECT COUNT(*) FROM snapshot WHERE date = ?", (date.today().isoformat(),)).fetchone()[0] == len(A + B)
+
+
+# ---- M8b regressions ----------------------------------------------------------------------------------------
+
+def _falling(n, end="2026-09-25"):
+    idx = pd.bdate_range(end=end, periods=n)
+    return pd.Series(100 * 0.995 ** np.arange(n), index=idx)
+
+
+def test_s2_ignores_missing_sma200_and_covers_out_of_universe(env):
+    """NEWCO: < 200 days at ME0/ME1, >= 200 today -> no trend sell. OLDCO (not in universe) -> trend sell."""
+    conn = env["conn"]
+    prices.store(conn, pd.DataFrame({"NEWCO": _falling(205), "OLDCO": _falling(400)}))
+    with conn:
+        conn.executemany("INSERT INTO holdings VALUES (?,?,?,?)",
+                         [("NEWCO", 1, 1.0, "2026-01-01"), ("OLDCO", 1, 1.0, "2026-01-01")])
+    closes = prices.load_closes(conn, ["NEWCO"], None)["NEWCO"].dropna()
+    assert len(closes.loc[:"2026-08-31"]) < 200 <= len(closes)  # ME1 = Aug 31 (Sep incomplete on 09-25)
+    s = state.build(conn, date(2026, 9, 25))
+    sells = {x["ticker"]: x["rule"] for x in s["sells"]}
+    assert "NEWCO" not in sells and sells.get("OLDCO") == "2 month-ends below 200DMA"
+    h = {x["ticker"]: x for x in s["holdings"]}
+    assert h["OLDCO"]["sell"] and not h["NEWCO"]["sell"]
+
+
+def test_stop_for_holding_outside_universe(env):
+    conn = env["conn"]
+    prices.store(conn, pd.DataFrame({"COST": synth_closes(["COST"])["COST"]}))
+    last = float(prices.load_closes(conn, ["COST"], None)["COST"].dropna().iloc[-1])
+    with conn:
+        conn.execute("INSERT INTO holdings VALUES (?,?,?,?)", ("COST", 1, 2 * last, "2026-01-01"))  # -50%
+    s = state.build(conn)
+    assert {x["ticker"]: x["rule"] for x in s["sells"]}.get("COST") == "-35% stop"
+    assert 'class="down">-35% stop' in env["client"].get("/").text
+
+
+def test_plan_done_skips_buys_without_price(env, monkeypatch):
+    conn, real = env["conn"], state.build
+
+    def build(*a, **k):
+        s = real(*a, **k)
+        s["buys"][0].update(close=None, shares=None)
+        return s
+    monkeypatch.setattr(state, "build", build)
+    buys = build(conn)["buys"]
+    r = env["client"].post("/plan/done")
+    assert r.status_code == 200 and r.headers.get("HX-Refresh") == "true"
+    got = [x["ticker"] for x in conn.execute("SELECT ticker FROM picks ORDER BY rank")]
+    assert got == [b["ticker"] for b in buys[1:]]
+    assert not conn.execute("SELECT 1 FROM holdings WHERE ticker = ?", (buys[0]["ticker"],)).fetchone()
+
+
+def test_picks_store_d_and_track_uses_same_base(env):
+    conn = env["conn"]
+    s = state.build(conn)
+    env["client"].post("/plan/done")
+    assert {r["d"] for r in conn.execute("SELECT d FROM picks")} == {s["meta"]["asof"].isoformat()}
+    ff = prices.load_closes(conn, ["AA01", "SMH"], None).ffill()
+    d = ff.index[ff.index.get_loc(pd.Timestamp("2026-09-10"))]
+    with conn:
+        conn.execute("DELETE FROM picks")
+        conn.execute("INSERT INTO picks (month, ticker, price, rank, reason, d) VALUES (?,?,?,?,?,?)",
+                     ("2026-09", "AA01", float(ff.at[d, "AA01"]), 1, "x", d.date().isoformat()))
+    row = state.build(conn)["track"]["rows"][0]
+    assert row["ret"] == pytest.approx(ff["AA01"].iloc[-1] / ff.at[d, "AA01"] - 1)
+    assert row["smh"] == pytest.approx(ff["SMH"].iloc[-1] / ff.at[d, "SMH"] - 1)  # same base date as the pick
+    with conn:
+        conn.execute("UPDATE picks SET d = NULL")  # pre-M8b row: month's first close
+    first = ff.index[ff.index >= "2026-09-01"][0]
+    assert state.build(conn)["track"]["rows"][0]["smh"] == pytest.approx(ff["SMH"].iloc[-1] / ff.at[first, "SMH"] - 1)
+
+
+def test_picks_d_migration(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE picks (month TEXT, ticker TEXT, price REAL, rank INTEGER, reason TEXT, "
+                "PRIMARY KEY (month, ticker))")
+    old.close()
+    for _ in range(2):  # idempotent
+        conn = db.connect(path)
+        assert "d" in [r[1] for r in conn.execute("PRAGMA table_info(picks)")]
+        conn.close()
+
+
+def test_completed_month_ends_holiday():
+    """Good Friday 2024: 03-28 is March's last trading day; on 03-30 March is complete."""
+    idx = pd.bdate_range("2024-01-02", "2024-03-28")
+    t = idx[-1]
+    assert state._completed_month_ends(idx, t, date(2024, 3, 30))[-1] == t
+    assert state._completed_month_ends(idx, t, date(2024, 4, 2))[-1] == t
+    assert state._completed_month_ends(idx, t, date(2024, 3, 28))[-1] == pd.Timestamp("2024-02-29")
+    apr = pd.bdate_range("2024-01-02", "2024-04-29")  # Tue 04-30 not closed yet: April stays open
+    assert state._completed_month_ends(apr, apr[-1], date(2024, 4, 30))[-1] == pd.Timestamp("2024-03-29")
+
+
+def test_clear_cache_rebinds():
+    old = state._sec_cache
+    old[("X", "d")] = []
+    state.clear_cache()
+    assert state._sec_cache is not old and state._sec_cache == {} and old  # old readers keep a consistent dict
+
+
+def test_holdings_listed_without_prices(env, tmp_path, monkeypatch):
+    path = tmp_path / "empty.db"
+    monkeypatch.setattr(config, "DB_PATH", path)
+    conn = db.connect(path)
+    with conn:
+        conn.execute("INSERT INTO holdings VALUES (?,?,?,?)", ("NVDA", 2, 100.0, "2026-01-01"))
+    s = state.build(conn)
+    assert [h["ticker"] for h in s["holdings"]] == ["NVDA"] and s["holdings"][0]["value"] is None
+    conn.close()
+    monkeypatch.setattr(appmod, "_needs_refresh", lambda c: False)
+    html = env["client"].get("/").text
+    assert "NVDA" in html and "no price data" in html

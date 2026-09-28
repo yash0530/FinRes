@@ -76,8 +76,9 @@ def reason(row) -> str:
     clauses = [_clause(name, p, [f.format(round(v, 2) + 0.0) for f, v in inner if _ok(v)])  # no "-0%"
                for name, p, inner in fmt]
     clauses = sorted((c for c in clauses if c), key=lambda c: -c[0])[:2]
-    trend = "above" if bool(row.get("trend", False)) else "below"
-    return " · ".join([text for _, text in clauses] + [f"{trend} 200DMA"])
+    trend = "in uptrend" if bool(row.get("trend", False)) else \
+        "above 200DMA, 50DMA below 200DMA (no uptrend)" if bool(row.get("above200", False)) else "below 200DMA"
+    return " · ".join([text for _, text in clauses] + [trend])
 
 
 def score(fac: pd.DataFrame, weights: str = "W1", use_revisions: bool = False,
@@ -194,16 +195,15 @@ def sell_list(scored: pd.DataFrame, holdings: dict[str, dict], prices_now: dict[
         return []
     out = []
     for t, h in holdings.items():
-        if t not in scored.index:
-            continue
-        r = scored.loc[t]
-        price = prices_now.get(t, r.get("close"))
-        cost, comp = h.get("cost"), r.get("composite")
-        below_now = _ok(r.get("sma200")) and not bool(r.get("above200", False))
+        r = scored.loc[t] if t in scored.index else None
+        price = prices_now.get(t, r.get("close") if r is not None else None)
+        cost, comp = h.get("cost"), r.get("composite") if r is not None else None
         rule = None
-        if _ok(price) and _ok(cost) and cost > 0 and price <= STOP * cost:
+        if _ok(price) and _ok(cost) and cost > 0 and price <= STOP * cost:  # every holding, scored or not
             rule = "-35% stop"
-        elif below_now and t in below200_prev:
+        elif r is None:
+            continue
+        elif _ok(r.get("sma200")) and not bool(r.get("above200", False)) and t in below200_prev:
             rule = "2 month-ends below 200DMA"
         elif cfg["sell"] == "S3" and _ok(comp) and comp < HOLD_FLOOR:
             rule = "rank fell below 70th pct"

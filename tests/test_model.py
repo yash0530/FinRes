@@ -152,11 +152,12 @@ def test_sell_list_rules():
     prev = {"T08", "T09", "GONE"}
     assert model.sell_list(s, holdings, prices, prev, {**G1N, "sell": "S1"}) == []
     s2 = {r["ticker"]: r["rule"] for r in model.sell_list(s, holdings, prices, prev, {**G1N, "sell": "S2"})}
-    assert s2 == {"T08": "-35% stop", "T09": "2 month-ends below 200DMA"}  # stop wins over trend
+    assert s2 == {"T08": "-35% stop", "T09": "2 month-ends below 200DMA", "GONE": "-35% stop"}  # stop wins
     s3 = model.sell_list(s, holdings, prices, prev, G1N)
     rules = {r["ticker"]: r["rule"] for r in s3}
-    assert rules == {"T00": "rank fell below 70th pct", "T08": "-35% stop", "T09": "2 month-ends below 200DMA"}
-    assert "GONE" not in rules and "T07" not in rules  # GONE not in scored; T07 above 200DMA, rank 0.8
+    assert rules == {"T00": "rank fell below 70th pct", "T08": "-35% stop", "T09": "2 month-ends below 200DMA",
+                     "GONE": "-35% stop"}  # GONE is not scored but the stop applies to every holding
+    assert "T07" not in rules  # T07 above 200DMA, rank 0.8
     assert len(s3) == len({r["ticker"] for r in s3})
     # below 200DMA now but not at the previous month-end -> no trend sell
     assert not model.sell_list(s, {"T09": {"shares": 1, "cost": 50}}, {"T09": 50.0}, set(),
@@ -170,9 +171,12 @@ def test_reason_top_two_and_no_nan():
     r = s.loc["T09", "reason"]  # top momentum and revisions, bottom quality
     assert r.startswith("Momentum 100th pct (12-1m +80%, 0% from high)")
     assert "Revisions 100th pct (FY EPS est +10%/90d)" in r and "Quality" not in r
-    assert r.endswith("above 200DMA") and r.count(" · ") == 2
-    lab = model.score(_fac(10, trend=False, eligible=[False] + [True] * 9, n_days=[100] + [400] * 9), "W3")
-    assert lab.loc["T05", "reason"].startswith("Momentum") and lab.loc["T05", "reason"].endswith("below 200DMA")
+    assert r.endswith(" · in uptrend") and r.count(" · ") == 2
+    lab = model.score(_fac(10, trend=False, above200=False, eligible=[False] + [True] * 9,
+                           n_days=[100] + [400] * 9), "W3")
+    assert lab.loc["T05", "reason"].startswith("Momentum") and lab.loc["T05", "reason"].endswith(" · below 200DMA")
+    flat = model.score(_fac(10, trend=False, above200=True), "W3")  # above the 200DMA, 50DMA under it
+    assert flat.loc["T05", "reason"].endswith(" · above 200DMA, 50DMA below 200DMA (no uptrend)")
     assert "Quality" not in lab.loc["T05", "reason"]
     assert lab.loc["T00", "reason"].startswith("Insufficient data")
     everything = pd.concat([s, lab])["reason"]
@@ -220,3 +224,11 @@ def test_b0r_rotation_least_held_first():
     assert names == [f"T{i:02d}" for i in range(2, 12)]  # the two held names wait; unheld go first by composite
     assert all(abs(b["dollars"] - 250) < 1e-9 for b in got)
     assert max(sum(1 for t in names if groups[t] == g) for g in set(groups.values())) <= model.MAX_PER_GROUP
+
+
+def test_stop_fires_for_unscored_holding():
+    """M8b: the -35% stop applies to holdings outside the scored universe; they never get trend/rank sells."""
+    s = model.score(_fac(5), "W3")
+    got = model.sell_list(s, {"COST": {"shares": 1, "cost": 2000.0}, "UP": {"shares": 1, "cost": 10.0}},
+                          {"COST": 1000.0, "UP": 50.0}, {"COST", "UP"}, {"sell": "S3"})
+    assert got == [{"ticker": "COST", "rule": "-35% stop", "composite": None}]

@@ -10,16 +10,21 @@ CREATE TABLE IF NOT EXISTS prices   (ticker TEXT, d TEXT, close REAL, PRIMARY KE
 CREATE TABLE IF NOT EXISTS snapshot (ticker TEXT, date TEXT, factors TEXT, raw TEXT, PRIMARY KEY (ticker, date));
 CREATE TABLE IF NOT EXISTS thesis   (ticker TEXT, week TEXT, json TEXT, created TEXT, PRIMARY KEY (ticker, week));
 CREATE TABLE IF NOT EXISTS holdings (ticker TEXT PRIMARY KEY, shares REAL NOT NULL, cost REAL NOT NULL, added TEXT);
-CREATE TABLE IF NOT EXISTS picks    (month TEXT, ticker TEXT, price REAL, rank INTEGER, reason TEXT, PRIMARY KEY (month, ticker));
+CREATE TABLE IF NOT EXISTS picks    (month TEXT, ticker TEXT, price REAL, rank INTEGER, reason TEXT, d TEXT,
+                                    PRIMARY KEY (month, ticker));
 """
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
     """Open the DB (WAL, Row factory, thread-shareable) and ensure the schema exists."""
-    conn = sqlite3.connect(str(path or config.DB_PATH), check_same_thread=False)
+    conn = sqlite3.connect(str(path or config.DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    try:  # M8b: picks.d (the pick price's close date) for DBs created before it existed
+        conn.execute("ALTER TABLE picks ADD COLUMN d TEXT")
+    except sqlite3.OperationalError:
+        pass  # already there
     return conn
 
 

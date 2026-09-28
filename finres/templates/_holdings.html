@@ -11,12 +11,12 @@
         <td class="n">{{ h.last|money }}</td><td class="n">{{ h.value|money0 }}</td><td class="n">{{ h.weight|pct }}</td>
         <td class="n">{{ signed(h.pl) }}</td><td>{{ chip(h.grade) if h.in_universe else '' }}</td>
         <td>{{ label(h.rule) if h.in_universe else '' }}</td>
-        <td class="{{ '' if h.status == 'OK' else 'warn-t' }}">{{ h.status }}</td></tr>
+        <td class="{{ 'down' if h.sell else '' if h.status == 'OK' else 'warn-t' }}">{{ h.status }}</td></tr>
     {% endfor %}
     </tbody>
     <tfoot><tr><td>Total</td><td></td><td class="n">{{ s.totals.cost|money0 }}</td><td></td>
       <td class="n">{{ s.totals.value|money0 }}</td><td class="n">100%</td>
-      <td class="n">{{ signed(s.totals.value / s.totals.cost - 1 if s.totals.cost else none) }}</td><td colspan="3"></td></tr></tfoot>
+      <td class="n">{{ signed(s.totals.value / s.totals.cost - 1 if s.totals.cost and s.totals.value is not none else none) }}</td><td colspan="3"></td></tr></tfoot>
   </table></div>
   {% else %}
   <p class="empty">No holdings yet. Paste them below, or click “I placed these buys” after buying.</p>
