@@ -39,7 +39,6 @@ progress { width: 140px; accent-color: var(--accent); }
 .dot.on::before { background: var(--up); }
 .dot.off { color: var(--muted); font-size: .85rem; }
 .pill { display: inline-block; margin: .4rem 0 0; padding: .15rem .6rem; border: 1px solid var(--rule); border-radius: 999px; font-size: .85rem; }
-.pill.brake { color: var(--amber); background: var(--amber-bg); border-color: var(--amber); }
 .banner { margin-top: .4rem; padding: .4rem 16px; background: var(--gC); color: var(--gC-t); border-radius: 4px; font-size: .9rem; }
 .banner.warn { background: var(--amber-bg); color: var(--amber); }
 button {
@@ -100,10 +99,12 @@ td.rs { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space
 .gF { background: var(--gF); color: var(--gF-t); }
 .gx { color: var(--muted); }
 .lbl { display: inline-block; font-size: .74rem; font-weight: 600; letter-spacing: .03em; padding: 0 .4em; border-radius: 3px; border: 1px solid transparent; white-space: nowrap; }
-.l-buy { color: var(--up); border-color: var(--up); }
+.l-buy, .l-uptrend { color: var(--up); border-color: var(--up); }
 .l-hold { color: var(--gC-t); background: var(--gC); }
 .l-watch { color: var(--amber); border-color: var(--amber); }
 .l-avoid { color: var(--gF-t); background: var(--gF); }
+.l-no-uptrend { color: var(--muted); background: var(--gC); }
+caption { text-align: left; font-size: .8rem; color: var(--muted); padding: .2rem 0; }
 .l-insufficient, .l-none { color: var(--muted); border: 1px dotted var(--muted); }
 .tag { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 0 .25em; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .4rem 1rem; margin: .6rem 0; }

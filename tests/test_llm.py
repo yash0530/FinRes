@@ -19,7 +19,7 @@ GOOD = {"thesis": "Strong trend. Quality is high.",
         "verdict": "hold", "confidence": "medium"}
 ANALYSIS = {"ticker": "NVDA", "name": "NVIDIA", "price": 187.321, "ret_1m": 0.05, "ret_6m": float("nan"),
             "ret_12m": None, "ret_12_1": 0.851, "dd_52w": -0.03, "above200": True, "trend": True, "mom": 0.92,
-            "qual": 0.88, "rev": None, "composite": 0.95, "label": "BUY", "gp_assets": 0.7123, "rev_growth": 0.83,
+            "qual": 0.88, "rev": None, "composite": 0.95, "label": "BUY", "rule": "UPTREND", "gp_assets": 0.7123, "rev_growth": 0.83,
             "rev_chg": 0.04, "forward_pe": 14.43, "earnings_yield": 0.031, "market_cap": 3.03e11, "sector": "Technology",
             "industry": "Semiconductors", "category": "AI chips", "speculative": False, "fund_pit": True,
             "eps_rev": {"0y": {"up30": 39, "down30": 1}}}
@@ -64,13 +64,23 @@ def test_facts_formatting_and_no_missing_values():
     assert f["eps_revisions_30d"] == "39 up / 1 down" and f["fundamentals_source"] == "SEC point-in-time"
     assert f["news_1"] == "2026-09-25 · Reuters · Nvidia unveils chip"
     assert f["news_2"] == "undated · unknown · Second headline" and "news_3" not in f
+    assert f["rule_status"] == "in uptrend — buyable under the equal-weight rule"
+    assert f["research_rank_pct"] == "95th percentile" and "model_label" not in f and "composite_pct" not in f
+    assert "not buyable" in llm.facts(dict(ANALYSIS, rule="NO UPTREND"), [])["rule_status"]
+    assert "rule_status" not in llm.facts(dict(ANALYSIS, rule="Insufficient data"), [])
+
+
+def test_prompt_v2_mentions_rule_and_research_rank():
+    assert llm.PROMPT_VERSION == "v2"
+    assert "rule_status" in llm.SYSTEM and "research_rank_pct" in llm.SYSTEM and "does NOT beat equal weight" in llm.SYSTEM
+    assert "model_label" not in llm.SYSTEM and "composite_pct" not in llm.SYSTEM
 
 
 def test_explain_json_schema_success(fake):
     q, bodies = fake
     q.append(_resp(content="```json\n" + json.dumps(GOOD) + "\n```"))
     r = llm.explain(ANALYSIS, NEWS)
-    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v1"
+    assert r["ok"] and r["data"]["verdict"] == "hold" and r["prompt_version"] == "v2"
     assert r["grounding"] == {"bad_keys": [], "ungrounded_numbers": []}
     b = bodies[0]
     assert b["response_format"]["type"] == "json_schema" and b["response_format"]["json_schema"]["strict"]
@@ -170,13 +180,13 @@ def test_explain_route_cache_and_force(env, job_reset, monkeypatch):  # noqa: F8
     monkeypatch.setattr(llm, "explain", fake_explain)
     monkeypatch.setattr(estimates, "news", lambda t, n=10: NEWS)
     rec = {"data": GOOD, "grounding": {"bad_keys": [], "ungrounded_numbers": []}, "seconds": 38,
-           "prompt_version": llm.PROMPT_VERSION, "model_label": "BUY", "created": "2026-09-27T10:00:00"}
+           "prompt_version": llm.PROMPT_VERSION, "rule_label": "UPTREND", "created": "2026-09-27T10:00:00"}
     with env["conn"]:
         env["conn"].execute("INSERT INTO thesis VALUES (?,?,?,?)", ("AA01", appmod._week(), json.dumps(rec), rec["created"]))
     c = env["client"]
     r = c.post("/explain/AA01")
     assert "cached this week" in r.text and "Strong trend." in r.text and "All numbers traced to the data" in r.text
-    assert "Model: " in r.text and "disagrees" in r.text and calls == []
+    assert "Rule: " in r.text and "UPTREND" in r.text and "disagrees" in r.text and calls == []
     r = c.post("/explain/AA01", params={"force": 1})
     assert 'hx-get="/explain/AA01"' in r.text and 'every 3s' in r.text
     _wait(job_reset)
@@ -184,7 +194,9 @@ def test_explain_route_cache_and_force(env, job_reset, monkeypatch):  # noqa: F8
     r = c.get("/explain/AA01")
     assert "Fresh thesis." in r.text and "Numbers not found in the data: 42%" in r.text and "7 s" in r.text
     row = env["conn"].execute("SELECT json FROM thesis WHERE ticker = 'AA01'").fetchone()
-    assert json.loads(row["json"])["data"]["thesis"] == "Fresh thesis."
+    saved = json.loads(row["json"])
+    assert saved["data"]["thesis"] == "Fresh thesis." and saved["rule_label"] in ("UPTREND", "NO UPTREND")
+    assert f"Rule: <span class=\"lbl l-{saved['rule_label'].lower().replace(' ', '-')}\">" in r.text
 
 
 def test_explain_route_error_has_retry(env, job_reset, monkeypatch):  # noqa: F811

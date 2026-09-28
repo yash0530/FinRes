@@ -18,8 +18,8 @@
     <span class="dot {{ 'on' if m.llm_up else 'off' }}">{% if m.llm_up %}Qwen ready{% else %}Qwen off — run <code>llm-serve start splash4</code>{% endif %}</span>
   </div>
   {% if r %}
-  <div class="wrap"><p class="pill {{ 'brake' if r.brake }}">SPY {{ 'above' if r.spy_above200 else 'below' }} 200DMA ·
-    {{ r.breadth|pct }} of universe above 200DMA · Brake {{ 'ON' if r.brake else 'OFF' }}{% if r.brake %}: buys limited to 2 names{% endif %}</p></div>
+  <div class="wrap"><p class="pill">SPY {{ 'above' if r.spy_above200 else 'below' }} 200DMA ·
+    {{ r.uptrend|pct }} of universe in uptrend</p></div>
   {% endif %}
   {% if replay %}<div class="banner wrap">Replay as of {{ m.replay_date }}: no downloads, no refresh. Revisions are off (no history).</div>{% endif %}
   {% if m.asof and s.withheld %}<div class="banner warn wrap">Ranking withheld: only {{ s.coverage|pct }} of the universe has a fresh price (need 90%). Data is shown, but there is no buy/sell plan until a refresh succeeds.</div>{% endif %}
@@ -34,10 +34,12 @@
   {% else %}
   <div class="card">
     {% if s.buys %}
-    <h3>Buy with {{ s.budget|money0 }} — {{ s.buys|length }} name{{ 's' if s.buys|length != 1 }} × {{ s.buys[0].dollars|money0 }}</h3>
+    <h3>Buy with {{ s.budget|money0 }} — {{ s.buys|length }} uptrend name{{ 's' if s.buys|length != 1 }} × {{ s.buys[0].dollars|money0 }}</h3>
+    <p class="small muted">Rule (ADR-005): equal dollars into names in an uptrend, the ones you hold least first. The ranking below is research context — it did not beat equal weight in the lab.</p>
     <ol class="buys">
     {% for b in s.buys %}
-      <li><div class="buy-h">{{ tick(b.ticker) }} <span class="muted small">{{ b.category }}</span> {{ chip(b.grade) }}
+      <li><div class="buy-h">{{ tick(b.ticker) }} <span class="muted small">{{ b.category }}</span>
+        <span class="muted small">you hold {{ b.held|money0 }}</span>
         <span class="n buy-amt">{{ b.dollars|money0 }} ≈ {{ b.shares|sh }} sh @ {{ b.close|money }}</span></div>
         <div class="reason small">{{ b.reason }}</div></li>
     {% endfor %}
@@ -45,7 +47,7 @@
     <button type="button" hx-post="/plan/done" hx-target="#plan-msg"
             hx-confirm="Record these {{ s.buys|length }} buys at the last close and add them to holdings?">I placed these buys</button>
     {% else %}
-    <p class="empty">No stock qualifies this month (none in the top 15% with an uptrend). Keep the cash for next month.</p>
+    <p class="empty">No stock in the universe is in an uptrend. Keep the cash for next month.</p>
     {% endif %}
     <div id="plan-msg" aria-live="polite"></div>
     <h3>Sell</h3>
@@ -58,7 +60,7 @@
     {% else %}<p class="muted">Nothing to sell.</p>{% endif %}
     {% if s.watch %}<h3>Watch</h3>
     <ul class="watch">{% for w in s.watch %}<li><strong>{{ w.ticker }}</strong>: {{ w.text }}</li>{% endfor %}</ul>{% endif %}
-    <p class="small muted">Model: {{ s.model }} — see DECISIONS ADR-005 · Revisions factor: unvalidated (15%){% if replay %} (off in replay){% endif %}</p>
+    <p class="small muted">Rules: {{ s.model }} — ADR-005 · lab/REPORT.md</p>
   </div>
   {% endif %}
 </section>
@@ -79,16 +81,16 @@
   <h2>Categories</h2>
   {% for c in s.categories %}
   <details {% if loop.index <= 2 %}open{% endif %}>
-    <summary>{{ c.name }} — {{ c.counts.BUY }} BUY · {{ c.counts.HOLD }} HOLD{% if c.counts.WATCH %} · {{ c.counts.WATCH }} WATCH{% endif %}{% if c.best %} · best: {{ c.best.ticker }} ({{ c.best.grade_composite }}){% endif %}</summary>
+    <summary>{{ c.name }} — {{ c.up }} of {{ c.rows|length }} in uptrend{% if c.best %} · top research rank: {{ c.best.ticker }} ({{ c.best.grade_composite }}){% endif %}</summary>
     <div class="scroll"><table class="cat">
-      <thead><tr><th>Ticker</th><th>Name</th><th class="n">Last</th><th>Comp</th><th>Mom</th><th>Qual</th><th>Rev</th>
+      <thead><tr><th>Ticker</th><th>Name</th><th class="n">Last</th><th title="Research rank (momentum 60% / quality 40%, +15% revisions live). Not validated to beat equal weight — see lab/REPORT.md">Rank</th><th>Mom</th><th>Qual</th><th>Rev</th>
         <th class="n">12-1m</th><th class="n">From high</th><th>Trend</th><th>Label</th><th>Reason</th></tr></thead>
       <tbody>{% for x in c.rows %}
         <tr><td>{{ tick(x.ticker) }}{% if x.stale %} <span class="tag">stale</span>{% endif %}{% if x.speculative %} <span class="tag">spec</span>{% endif %}</td>
           <td class="nm" title="{{ x.name }}">{{ x.name }}</td><td class="n">{{ x.close|money }}</td>
           <td>{{ chip(x.grade_composite) }}</td><td>{{ chip(x.grade_mom) }}</td><td>{{ chip(x.grade_qual) }}</td><td>{{ chip(x.grade_rev) }}</td>
           <td class="n">{{ signed(x.ret_12_1) }}</td><td class="n">{{ signed(x.dd_52w) }}</td>
-          <td>{{ '↑' if x.trend else '↓' }}</td><td>{{ label(x.label) }}</td>
+          <td>{{ '↑' if x.trend else '↓' }}</td><td>{{ label(x.rule) }}</td>
           <td class="rs" title="{{ x.reason }}">{{ x.reason }}</td></tr>
       {% endfor %}</tbody>
     </table></div>

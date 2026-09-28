@@ -10,7 +10,8 @@ from finres import config, db, edgar, estimates, llm, model, prices, signals
 BUDGET = 2500.0
 FRESH_ROWS = 5  # a close within the last 5 trading rows counts as fresh
 COVERAGE_MIN = 0.90
-OOS_PATH = config.ROOT / "lab" / "results" / "oos.json"
+LAB_DIR = config.ROOT / "lab" / "results"  # oos.json + fidelity.json (shapes owned by lab/)
+UPTREND, NO_UPTREND = "UPTREND", "NO UPTREND"  # ADR-005 labels; model.score's BUY/WATCH/... stay internal
 SNAP_KEYS = ["composite", "grade_mom", "grade_qual", "grade_rev", "grade_composite", "label", "mom", "qual",
              "rev", "rev_chg", "rev_breadth", "trend", "close"]
 _fund_cache: dict[tuple[str, str], dict | None] = {}  # (ticker, asof) -> edgar.fundamentals output
@@ -34,6 +35,13 @@ def clean(v):
 
 def row_dict(r: pd.Series) -> dict:
     return {k: clean(v) for k, v in r.items()}
+
+
+def rule_label(r) -> str:
+    """Shipped-rule meaning of a scored row: UPTREND (buyable), NO UPTREND, or Insufficient data."""
+    if r is None or r.get("label") == model.INSUFFICIENT:
+        return model.INSUFFICIENT
+    return UPTREND if bool(r.get("trend", False)) else NO_UPTREND
 
 
 def llm_up() -> bool:
@@ -111,22 +119,19 @@ def _meta(conn, fr: dict | None, asof: date | None) -> dict:
 
 
 def _lab() -> dict | None:
-    """Backtest headline from lab/results/oos.json (shape owned by lab/; read defensively)."""
-    if not OOS_PATH.exists():
-        return None
+    """Lab headline from oos.json (selected, DCA SMH) + fidelity.json (ai_OOS ew_trend10 / ew_all); None if absent."""
     try:
-        d = json.loads(OOS_PATH.read_text())
-    except (OSError, ValueError):
+        oos = json.loads((LAB_DIR / "oos.json").read_text())
+        fid = json.loads((LAB_DIR / "fidelity.json").read_text())
+        x = {r["name"]: float(r["xirr"]) for r in oos["rows"]} | {r["name"]: float(r["xirr"]) for r in fid["ai_OOS"]}
+        rot, ew, smh, sel = x["ew_trend10"], x["ew_all"], x["DCA SMH"], x[oos["selected"]]
+        y0, y1 = (str(p)[:4] for p in oos["period"])
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
         return None
-    parts = [f"Shipped: {d.get('ship', '?')}"]
-    for k, v in (d.get("oos") or {}).items():
-        if isinstance(v, dict) and clean(v.get("xirr")) is not None:
-            parts.append(f"{k} OOS XIRR {v['xirr']:.1%}")
-    for k in ("random_percentile", "random_pct", "percentile"):
-        if clean(d.get(k)) is not None:
-            parts.append(f"beat {d[k]:.0f}% of random portfolios" if d[k] > 1 else f"beat {d[k]:.0%} of random portfolios")
-            break
-    return {"headline": " · ".join(parts), "raw": d}
+    gates = "passed" if all((oos.get("rule") or {"_": False}).values()) else "failed"
+    return {"headline": f"Lab ({y0}–{y1}, out-of-sample): uptrend rotation {rot:.1%} vs equal-weight universe "
+                        f"{ew:.1%} vs SMH DCA {smh:.1%} XIRR; the ranking model {sel:.1%} {gates} its gates. "
+                        "Hindsight-biased universe: absolute numbers are inflated."}
 
 
 def _track(conn, fr: dict | None) -> dict:
@@ -154,7 +159,7 @@ def build(conn, asof: date | None = None) -> dict:
     fr = frame(conn, asof)
     s = {"meta": _meta(conn, fr, asof), "buys": [], "sells": [], "watch": [], "holdings": [], "totals": None,
          "categories": [], "regime": None, "coverage": 0.0, "withheld": True, "track": _track(conn, fr),
-         "lab": _lab(), "model": "·".join(model.SHIPPED.values()), "budget": BUDGET}
+         "lab": _lab(), "model": f"{model.SHIPPED['buy']} · {model.SHIPPED['sell']}", "budget": BUDGET}
     if fr is None:
         return s
     u, closes, scored, fac_all = fr["u"], fr["closes"], fr["scored"], fr["fac_all"]
@@ -163,7 +168,9 @@ def build(conn, asof: date | None = None) -> dict:
     s["coverage"] = sum(bool(fresh.get(x, False)) for x in u["tickers"]) / max(len(u["tickers"]), 1)
     s["withheld"] = s["coverage"] < COVERAGE_MIN
     spy = fac_all.loc["SPY"] if "SPY" in fac_all.index else pd.Series({"close": math.nan, "sma200": math.nan})
-    s["regime"] = model.regime(fr["fac"], spy["close"], spy["sma200"])
+    s["regime"] = model.regime(fr["fac"], spy["close"], spy["sma200"])  # information only (ADR-005: no brake)
+    el = scored[scored["eligible"].astype(bool)]
+    s["regime"]["uptrend"] = float(el["trend"].fillna(False).astype(bool).mean()) if len(el) else None
 
     # Holdings, positions and sells.
     hold = {r["ticker"]: {"shares": r["shares"], "cost": r["cost"]}
@@ -171,7 +178,7 @@ def build(conn, asof: date | None = None) -> dict:
     positions = {x: h["shares"] * last.get(x, h["cost"]) for x, h in hold.items()}
     # S2 "two consecutive month-ends below 200DMA" is judged on the last two COMPLETED month-ends ME0 < ME1,
     # not on today's close: the row's `above200` is replaced by its state at ME1, `below200_prev` is ME0's.
-    # The -35% stop and the S3 rank rule use the latest close / current composite.
+    # The -35% stop uses the latest close.
     me = _completed_month_ends(closes.index, fr["t"])
     sell_frame, below_prev = scored.copy(), set()
     if len(me) >= 2:
@@ -182,7 +189,6 @@ def build(conn, asof: date | None = None) -> dict:
         sell_frame["above200"] = True  # not enough history: the trend rule cannot fire
     sells = model.sell_list(sell_frame, hold, last, below_prev, model.SHIPPED)
     rule = {x["ticker"]: x["rule"] for x in sells}
-    capped = model.capped(list(hold), scored, positions, u["ticker_group"])
     total = sum(positions.values())
     for x, h in hold.items():
         r = scored.loc[x] if x in scored.index else None
@@ -190,16 +196,16 @@ def build(conn, asof: date | None = None) -> dict:
         s["holdings"].append({
             "ticker": x, "shares": h["shares"], "cost": h["cost"], "last": lp, "value": positions[x],
             "weight": positions[x] / total if total else None, "pl": lp / h["cost"] - 1 if lp and h["cost"] else None,
-            "grade": r["grade_composite"] if r is not None else None, "label": r["label"] if r is not None else None,
+            "grade": r["grade_composite"] if r is not None else None, "rule": rule_label(r),
             "in_universe": r is not None,
-            "status": rule.get(x) or ("at cap: no new money" if x in capped else "OK" if r is not None
-                                      else "not in universe")})
+            "status": rule.get(x) or ("not in universe" if r is None else "OK" if rule_label(r) != NO_UPTREND
+                                      else "no uptrend (sell after 2 month-ends below 200DMA)")})
         if r is not None:
             s["watch"] += [{"ticker": x, "text": w} for w in model.warnings(r) if w != "speculative"]
     s["totals"] = {"value": total, "cost": sum(h["shares"] * h["cost"] for h in hold.values())}
     if not s["withheld"]:
         s["sells"] = [dict(x, pl=next(h["pl"] for h in s["holdings"] if h["ticker"] == x["ticker"])) for x in sells]
-        buys = model.buy_list(scored, positions, u["ticker_group"], model.SHIPPED, s["regime"]["brake"], BUDGET)
+        buys = model.buy_list(scored, positions, u["ticker_group"], model.SHIPPED, False, BUDGET)  # B0R: no brake
         for b in buys:
             x, close = b["ticker"], last.get(b["ticker"])
             b.update(category=u["categories"][u["ticker_category"][x]]["name"], close=close,
@@ -214,14 +220,15 @@ def build(conn, asof: date | None = None) -> dict:
         for x in [x for x in scored.index if u["ticker_category"].get(x) == key]:
             r = row_dict(scored.loc[x])
             raw = fr["raws"].get(x) or {}
-            r.update(ticker=x, name=raw.get("name") or "", stale=not bool(fresh.get(x, False)) or (live and not raw))
+            r.update(ticker=x, name=raw.get("name") or "", rule=rule_label(r), stale=not bool(fresh.get(x, False)) or (live and not raw))
             rows.append(r)
         rows += [{"ticker": x, "name": (fr["raws"].get(x) or {}).get("name") or "", "stale": True,
-                  "label": model.INSUFFICIENT, "reason": "no price data"}
+                  "label": model.INSUFFICIENT, "rule": model.INSUFFICIENT,
+                  "reason": "no price data"}
                  for x in c["tickers"] if x not in scored.index]
-        counts = {k: sum(r.get("label") == k for r in rows) for k in ("BUY", "WATCH", "HOLD", "AVOID")}
+        up = sum(r["rule"] == UPTREND for r in rows)
         best = next((r for r in rows if r.get("composite") is not None), None)
-        s["categories"].append({"key": key, "name": c["name"], "rows": rows, "counts": counts, "best": best})
+        s["categories"].append({"key": key, "name": c["name"], "rows": rows, "up": up, "best": best})
     return s
 
 
@@ -270,7 +277,7 @@ def analyze(conn, ticker: str, asof: date | None = None) -> dict:
     a, b = [clean(v) for v in s.iloc[-252:]], [clean(v) for v in sma.iloc[-252:]]
     raw = raw or {}
     out = row_dict(row)
-    out.update(ticker=ticker, name=raw.get("name") or ticker, sector=raw.get("sector"), industry=raw.get("industry"),
+    out.update(ticker=ticker, rule=rule_label(row), name=raw.get("name") or ticker, sector=raw.get("sector"), industry=raw.get("industry"),
                forward_pe=raw.get("forward_pe"), price=clean(row["close"]), warnings=model.warnings(row),
                in_universe=ticker in fr["u"]["ticker_category"], asof=fr["t"].date(),
                market_cap=raw.get("market_cap"), eps_rev=raw.get("eps_rev"),  # passthrough for llm.facts

@@ -200,3 +200,23 @@ def test_buy_list_max_per_group(monkeypatch):
     assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "S2"]
     monkeypatch.setattr(model, "MAX_PER_GROUP", 2)
     assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "P0"]
+
+
+def test_b0r_rotation_least_held_first():
+    """ADR-005 shipped rule: uptrend names only, least-held first, composite breaks ties, <=3 per group, <=10."""
+    import pandas as pd
+    from finres import model
+    idx = [f"T{i:02d}" for i in range(14)]
+    fac = pd.DataFrame({"eligible": True, "trend": [True] * 12 + [False] * 2, "mom_raw": range(14, 0, -1),
+                        "hi52": 1.0, "gp_assets": None, "rev_growth": None, "earnings_yield": None,
+                        "speculative": False, "close": 10.0, "n_days": 300, "sma200": 9.0, "above200": True},
+                       index=idx)
+    scored = model.score(fac)
+    groups = {t: f"g{i % 5}" for i, t in enumerate(idx)}
+    held = {"T00": 500.0, "T01": 100.0}
+    got = model.buy_list(scored, held, groups, {"buy": "B0R"}, brake=True, budget=2500)
+    names = [b["ticker"] for b in got]
+    assert len(names) == 10 and "T12" not in names and "T13" not in names  # no-uptrend names never bought
+    assert names == [f"T{i:02d}" for i in range(2, 12)]  # the two held names wait; unheld go first by composite
+    assert all(abs(b["dollars"] - 250) < 1e-9 for b in got)
+    assert max(sum(1 for t in names if groups[t] == g) for g in set(groups.values())) <= model.MAX_PER_GROUP

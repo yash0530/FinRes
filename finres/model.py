@@ -16,7 +16,8 @@ STOP = 0.65
 BRAKE_BREADTH = 0.40
 BRAKE_N = 2
 MAX_PER_GROUP = 3  # ADR-004b: at most 3 of one month's buys from one cap group
-SHIPPED = {"weights": "W1", "gate": "G1", "sell": "S3", "buy": "Nvar"}  # placeholder until ADR-005
+SHIPPED = {"weights": "W2", "gate": "G1", "sell": "S2", "buy": "B0R"}  # ADR-005: lab verdict
+ROTATE_N = 10  # B0R: 10 uptrend names per month, least-held first
 
 NUMERIC = ["gp_assets", "rev_growth", "earnings_yield", "rev_chg", "rev_breadth"]
 INSUFFICIENT = "Insufficient data"
@@ -163,6 +164,14 @@ def take_by_group(tickers: list, groups: dict[str, str], limit: int) -> list:
 def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict,
              brake: bool, budget: float) -> list[dict]:
     """This month's buys, split equally; [] means carry the cash."""
+    if cfg["buy"] == "B0R":  # ADR-005 practical B0: uptrend names, least-held first; no caps, no brake
+        up = scored[scored["eligible"].astype(bool) & scored["composite"].notna() & scored["trend"].astype(bool)]
+        up = up.assign(_held=[positions.get(t, 0.0) for t in up.index], _t=up.index.astype(str))
+        up = up.sort_values(["_held", "composite", "_t"], ascending=[True, False, True])
+        pick = up.loc[take_by_group(list(up.index), groups, ROTATE_N)]
+        n = len(pick)
+        return [{"ticker": t, "dollars": budget / n, "composite": float(r["composite"]), "reason": r.get("reason"),
+                 "held": float(r["_held"])} for t, r in pick.iterrows()]
     pool = buy_pool(scored, positions, groups, cfg)
     if cfg["buy"] == "Nvar":
         pool, limit = pool[pool["composite"] >= BUY_ZONE], MAX_N

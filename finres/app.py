@@ -263,7 +263,7 @@ def _explain_job(t: str) -> None:
             res = llm.explain(a, news)
             if res["ok"]:
                 created = datetime.now().isoformat(timespec="seconds")
-                res |= {"ticker": t, "model_label": a.get("label"), "created": created}
+                res |= {"ticker": t, "rule_label": a.get("rule"), "created": created}
                 with conn:
                     conn.execute("INSERT OR REPLACE INTO thesis VALUES (?,?,?,?)", (t, _week(), json.dumps(res), created))
         job.update(status="done" if res["ok"] else "error", result=res)

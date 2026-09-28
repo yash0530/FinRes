@@ -100,10 +100,11 @@ def test_plan_done_idempotent_and_weighted_cost(env):
     c, conn = env["client"], env["conn"]
     s = state.build(conn)
     assert s["buys"], "synthetic data should produce buys"
-    first = s["buys"][0]
-    c.post("/holdings", data={"text": f"{first['ticker']} 10 10"})
+    up = [x for x in s["categories"][0]["rows"] + s["categories"][1]["rows"] if x["rule"] == "UPTREND"]
+    c.post("/holdings", data={"text": "\n".join(f"{x['ticker']} 10 10" for x in up)})  # all held: buys top them up
     s = state.build(conn)
     buys = {b["ticker"]: b for b in s["buys"]}
+    first = s["buys"][0]
     r = c.post("/plan/done")
     assert r.headers.get("HX-Refresh") == "true"
     n = conn.execute("SELECT COUNT(*) FROM picks").fetchone()[0]
@@ -118,6 +119,65 @@ def test_plan_done_idempotent_and_weighted_cost(env):
     assert h[first["ticker"]][1] == pytest.approx((10 * 10 + b["shares"] * b["close"]) / sh)
     assert set(buys) <= set(h)
     assert "No picks recorded yet" not in c.get("/").text
+
+
+def test_buys_are_b0r_least_held_equal_dollars(env, monkeypatch):
+    c, conn = env["client"], env["conn"]
+    monkeypatch.setitem(UNI, "ticker_group", {t: t[:3] for t in UNI["tickers"]})  # 5 groups: the 3-per-group cap won't bind
+    s = state.build(conn)
+    rows = {x["ticker"]: x for cat in s["categories"] for x in cat["rows"]}
+    up = [t for t, x in rows.items() if x["rule"] == "UPTREND"]
+    assert len(up) > 10 and any(x["rule"] == "NO UPTREND" for x in rows.values())
+    buys = s["buys"]
+    assert len(buys) == 10 and all(b["ticker"] in up for b in buys)
+    assert {b["dollars"] for b in buys} == {250.0} and all(b["held"] == 0 for b in buys)
+    first = buys[0]["ticker"]
+    c.post("/holdings", data={"text": f"{first} 1 10"})
+    buys = state.build(conn)["buys"]
+    assert buys[0]["ticker"] != first and first not in [b["ticker"] for b in buys]  # held name goes to the back
+    assert all(b["ticker"] in up for b in buys) and len(buys) <= 10
+    html = c.get("/").text
+    assert "10 uptrend names × $250" in html and "you hold $0" in html and "Rules: B0R · S2" in html
+
+
+def test_page_shows_rule_labels_not_ranking_labels(env):
+    c, conn = env["client"], env["conn"]
+    down = [x["ticker"] for cat in state.build(conn)["categories"] for x in cat["rows"] if x["rule"] == "NO UPTREND"]
+    c.post("/holdings", data={"text": "\n".join(f"{t} 5 1" for t in down)})  # some already sell, some not yet
+    html = c.get("/").text
+    for word in ("at cap", "Brake", "BUY", "AVOID", "WATCH"):
+        assert word not in html, word
+    assert "UPTREND" in html and "NO UPTREND" in html and "in uptrend" in html and "top research rank" in html
+    assert "no uptrend (sell after 2 month-ends below 200DMA)" in html and 'class="warn-t">2 month-ends below 200DMA' in html
+    assert 'title="Research rank (momentum 60% / quality 40%' in html
+
+
+def test_sells_are_s2_only(env):
+    conn = env["conn"]
+    s = state.build(conn)
+    worst = min((x for cat in s["categories"] for x in cat["rows"] if x.get("composite") is not None),
+                key=lambda x: x["composite"])
+    with conn:  # a -35% stop on AA02 and a low-rank name at a fine cost: only the stop fires
+        conn.executemany("INSERT INTO holdings VALUES (?,?,?,?)",
+                         [("AA02", 1, 1e6, "2026-01-01"), (worst["ticker"], 1, 0.01, "2026-01-01")])
+    sells = {x["ticker"]: x["rule"] for x in state.build(conn)["sells"]}
+    assert sells.get("AA02") == "-35% stop"
+    assert set(sells.values()) <= {"-35% stop", "2 month-ends below 200DMA"}
+
+
+def test_lab_headline_from_json(env, tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(state, "LAB_DIR", tmp_path)
+    assert "Validation pending" in env["client"].get("/").text
+    (tmp_path / "oos.json").write_text(json.dumps({
+        "period": ["2019-01", "2026-08"], "selected": "W2", "rule": {"beats_b0": False},
+        "rows": [{"name": "W2", "xirr": 0.361}, {"name": "DCA SMH", "xirr": 0.399}]}))
+    assert "Validation pending" in env["client"].get("/").text  # fidelity.json still missing
+    (tmp_path / "fidelity.json").write_text(json.dumps({"ai_OOS": [{"name": "ew_trend10", "xirr": 0.403},
+                                                                   {"name": "ew_all", "xirr": 0.361}]}))
+    html = env["client"].get("/").text
+    assert ("Lab (2019–2026, out-of-sample): uptrend rotation 40.3% vs equal-weight universe 36.1% vs SMH DCA "
+            "39.9% XIRR; the ranking model 36.1% failed its gates.") in html and "Validation pending" not in html
 
 
 def test_analyze_errors_and_card(env):

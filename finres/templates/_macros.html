@@ -2,7 +2,7 @@
 <span class="chip g{{ g if g in ['A','B','C','D','F'] else 'x' }}">{{ g or '–' }}</span>
 {%- endmacro %}
 {% macro label(l) -%}
-{%- set k = (l or '')|lower|replace(' data', '') -%}
+{%- set k = (l or '')|lower|replace(' data', '')|replace(' ', '-') -%}
 <span class="lbl l-{{ k or 'none' }}">{{ l or '–' }}</span>
 {%- endmacro %}
 {% macro signed(v) -%}

@@ -22,6 +22,7 @@
     <polyline class="sp-px" points="{{ a.spark.price }}"/>
   </svg>
   <div class="scroll"><table>
+    <caption>Research factors (context, not the buy rule)</caption>
     <thead><tr><th>Factor</th><th>Grade</th><th class="n">Pct</th><th>Raw numbers</th><th>What this means</th></tr></thead>
     <tbody>
       <tr><td>Momentum</td><td>{{ chip(a.grade_mom) }}</td><td class="n">{{ a.mom|pct }}</td>
@@ -33,12 +34,12 @@
       <tr><td>Revisions</td><td>{{ chip(a.grade_rev) }}</td><td class="n">{{ a.rev|pct }}</td>
         <td class="n">EPS est {{ a.rev_chg|spct }}/90d · breadth {{ a.rev_breadth|num }}</td>
         <td>Are analysts raising estimates? (unvalidated, 15%)</td></tr>
-      <tr><td><strong>Composite</strong></td><td>{{ chip(a.grade_composite) }}</td><td class="n">{{ a.composite|pct }}</td>
+      <tr><td title="Research rank (momentum 60% / quality 40%, +15% revisions live). Not validated to beat equal weight — see lab/REPORT.md"><strong>Research rank</strong></td><td>{{ chip(a.grade_composite) }}</td><td class="n">{{ a.composite|pct }}</td>
         <td class="n">earn. yield {{ a.earnings_yield|pct }} · fwd P/E {{ a.forward_pe|num }}</td>
-        <td>Rank in the universe; top 15% with an uptrend = BUY</td></tr>
+        <td>Rank in the universe; not validated to beat equal weight (context only)</td></tr>
     </tbody>
   </table></div>
-  <p>{{ label(a.label) }} <span class="reason">{{ a.reason }}</span></p>
+  <p>{{ label(a.rule) }} <span class="reason">{{ a.reason }}</span></p>
   {% if a.warnings %}<p class="watch">Watch: {{ a.warnings|join(' · ') }}</p>{% endif %}
   {% if a.fund_pit == false %}<p class="small muted">Fundamentals from Yahoo (not point-in-time): this company does not file US-GAAP data with the SEC.</p>{% endif %}
   <button type="button" id="explain-btn" hx-post="/explain/{{ a.ticker|urlencode }}" hx-target="#explain" hx-swap="outerHTML"

@@ -16,7 +16,6 @@ COST = 0.0015  # 15 bps per side
 MIN_SCORED = 40  # fewer eligible names -> unscored month (equal-weight into all eligible)
 SLIM = ["eligible", "composite", "trend", "earnings_yield", "speculative", "sma200", "above200", "close"]
 PICKS = ("rank", "random", "random_all", "ew_all", "ew_trend", "ew_trend10")
-ROTATE_N = 10  # ADR-005: practical B0 = 10 uptrend names/month, least-held first
 
 
 def _clean(x) -> bool:
@@ -129,10 +128,8 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             names = list(el)
         elif pick == "ew_trend":
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
-        elif pick == "ew_trend10":  # rotate: least-held uptrend names first, composite breaks ties
-            up = scored[scored["eligible"].astype(bool) & scored["trend"].astype(bool)].index
-            order = sorted(up, key=lambda k: (positions.get(k, 0.0), -float(scored.at[k, "composite"] or 0), k))
-            names = model.take_by_group(order, groups, ROTATE_N)
+        elif pick == "ew_trend10":  # the app's shipped rule (ADR-005), same code path
+            names = [b["ticker"] for b in model.buy_list(scored, positions, groups, {"buy": "B0R"}, False, budget)]
         elif pick == "rank":
             names = [b["ticker"] for b in model.buy_list(scored, positions, groups, cfg, reg["brake"], budget)]
         else:

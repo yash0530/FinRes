@@ -4,13 +4,13 @@
   {% if s.holdings %}
   <div class="scroll"><table>
     <thead><tr><th>Ticker</th><th class="n">Shares</th><th class="n">Avg cost</th><th class="n">Last</th>
-      <th class="n">Value</th><th class="n">Weight</th><th class="n">P/L</th><th>Grade</th><th>Label</th><th>Status</th></tr></thead>
+      <th class="n">Value</th><th class="n">Weight</th><th class="n">P/L</th><th title="Research rank (momentum 60% / quality 40%, +15% revisions live). Not validated to beat equal weight — see lab/REPORT.md">Rank</th><th>Rule</th><th>Status</th></tr></thead>
     <tbody>
     {% for h in s.holdings %}
       <tr><td>{{ tick(h.ticker) }}</td><td class="n">{{ h.shares|sh }}</td><td class="n">{{ h.cost|money }}</td>
         <td class="n">{{ h.last|money }}</td><td class="n">{{ h.value|money0 }}</td><td class="n">{{ h.weight|pct }}</td>
         <td class="n">{{ signed(h.pl) }}</td><td>{{ chip(h.grade) if h.in_universe else '' }}</td>
-        <td>{{ label(h.label) if h.in_universe else '' }}</td>
+        <td>{{ label(h.rule) if h.in_universe else '' }}</td>
         <td class="{{ '' if h.status == 'OK' else 'warn-t' }}">{{ h.status }}</td></tr>
     {% endfor %}
     </tbody>

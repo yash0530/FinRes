@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from finres import config
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 HINT = "Start it with: llm-serve start splash4"
 _up = {"at": -1e9, "up": False}
 
@@ -42,10 +42,10 @@ class Thesis(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
-SYSTEM = """You are a skeptical buy-side equity analyst. Your one reader is a long-only individual investor who adds new money to US AI and AI-adjacent stocks once a month and holds for months to years. Your job is to stress-test a deterministic model's view of ONE stock, not to cheerlead it.
+SYSTEM = """You are a skeptical buy-side equity analyst. Your one reader is a long-only individual investor who adds new money to US AI and AI-adjacent stocks once a month and holds for months to years. The app buys by a fixed rule (equal dollars into every name in an uptrend, least-held first); your job is to give an independent, skeptical opinion on the business and setup of ONE stock, not to cheerlead it.
 
 The user message is a FACTS block of `key: value` lines computed by code. It is your ONLY source of numbers.
-Key glossary: ret_12_1 = return from 12 months ago to 1 month ago; from_52w_high = distance below the 52-week high; gp_assets = gross profit / total assets (profitability); revenue_growth_ttm = trailing-twelve-month revenue growth; fy_eps_est_change_90d = change in analysts' fiscal-year EPS estimates over 90 days; eps_revisions_30d = analysts raising vs cutting estimates in 30 days; trend_gate = price above its 200-day average AND 50-day above 200-day; volatility_1y = annualized volatility; model_reason = the model's own one-line reason.
+Key glossary: ret_12_1 = return from 12 months ago to 1 month ago; from_52w_high = distance below the 52-week high; gp_assets = gross profit / total assets (profitability); revenue_growth_ttm = trailing-twelve-month revenue growth; fy_eps_est_change_90d = change in analysts' fiscal-year EPS estimates over 90 days; eps_revisions_30d = analysts raising vs cutting estimates in 30 days; trend_gate = price above its 200-day average AND 50-day above 200-day; volatility_1y = annualized volatility; research_rank_pct = research rank; the lab found it does NOT beat equal weight — treat as context only; rule_status = what the app's shipped buy/sell rule says about this stock; model_reason = the research ranking's one-line reason.
 
 Rules:
 1. Use ONLY the FACTS. Never invent, estimate or recall numbers (prices, revenue, margins, growth, multiples, targets, dates). Never compute new ratios, differences or sums. When you use a number, copy it exactly as written in the FACTS.
@@ -53,12 +53,12 @@ Rules:
 3. Every bull and bear point must list in `evidence` the exact FACTS keys it relies on (e.g. "ret_12_1", "gp_assets", "news_3"). At least one key per point; only keys that appear in the FACTS.
 4. If a fact you would need is missing from the FACTS, say so plainly (e.g. "no estimate-revision data") instead of guessing.
 5. How to weigh the evidence:
-   - momentum_pct, quality_pct, revisions_pct and composite_pct are percentile ranks within the model's AI-stock universe (higher is better).
+   - momentum_pct, quality_pct, revisions_pct and research_rank_pct are percentile ranks within the app's AI-stock universe (higher is better). They are research context, not a validated edge.
    - Momentum and the 200-day trend have the longest published evidence; quality is secondary; revisions are unvalidated and carry little weight.
    - Failing the trend gate or trading below the 200-day average is a real negative for new money, however good the story.
    - speculative = yes means the company is losing money. Fundamentals that are not point-in-time deserve less trust.
    - News headlines are context, not proof. Do not build a point on one headline alone.
-6. model_label is the model's rule-based label (BUY / WATCH / HOLD / AVOID). You may disagree, but if your verdict differs, the thesis must say why.
+6. Your verdict is YOUR opinion on the business and setup. rule_status is the app's rule (uptrend = buyable). If your verdict disagrees with rule_status (e.g. "avoid" for a name in an uptrend, or "buy" for one with no uptrend), the thesis must say so and why.
 7. verdict is about NEW money this month: "buy", "hold" (keep if owned, do not add) or "avoid". confidence reflects how consistent the facts are and how much is missing.
 8. change_my_mind: 2-3 concrete, observable developments that would flip your verdict (e.g. "a monthly close below the 200-day average", "analysts start cutting estimates"). Do not invent numeric thresholds.
 9. Style: thesis is 2-3 sentences. Each point is one short sentence. Plain English, no hype, no disclaimers.
@@ -94,13 +94,16 @@ def _ord(v: float) -> str:
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')} percentile"
 
 
+RULE_STATUS = {"UPTREND": "in uptrend — buyable under the equal-weight rule",
+               "NO UPTREND": "no uptrend — not buyable; held positions sell after 2 month-ends below 200DMA"}
 _sp, _p, _yn = (lambda v: f"{v:+.0%}"), (lambda v: f"{v:.1%}"), (lambda v: "yes" if v else "no")
 FIELDS = [("company", "name", str), ("ticker", "ticker", str), ("price", "price", lambda v: f"${v:,.2f}"),
           ("ret_1m", "ret_1m", _sp), ("ret_6m", "ret_6m", _sp), ("ret_12m", "ret_12m", _sp),
           ("ret_12_1", "ret_12_1", _sp), ("from_52w_high", "dd_52w", _sp), ("volatility_1y", "vol_252", lambda v: f"{v:.0%}"),
           ("above_200dma", "above200", _yn), ("trend_gate", "trend", lambda v: "passes" if v else "fails"),
           ("momentum_pct", "mom", _ord), ("quality_pct", "qual", _ord), ("revisions_pct", "rev", _ord),
-          ("composite_pct", "composite", _ord), ("model_label", "label", str), ("model_reason", "reason", str),
+          ("research_rank_pct", "composite", _ord), ("rule_status", "rule", lambda v: RULE_STATUS[v]),
+          ("model_reason", "reason", str),
           ("gp_assets", "gp_assets", lambda v: f"{v:.2f}"), ("revenue_growth_ttm", "rev_growth", _sp),
           ("fy_eps_est_change_90d", "rev_chg", _sp), ("forward_pe", "forward_pe", lambda v: f"{v:.1f}x"),
           ("earnings_yield", "earnings_yield", _p), ("market_cap", "market_cap", _money), ("sector", "sector", str),
@@ -112,7 +115,7 @@ def facts(analysis: dict, news: list[dict]) -> dict[str, str]:
     out = {}
     for key, src, fmt in FIELDS:
         v = analysis.get(src)
-        if _ok(v) and v != "":
+        if _ok(v) and v != "" and (src != "rule" or v in RULE_STATUS):
             out[key] = fmt(v)
     rv = (analysis.get("eps_rev") or {}).get("0y") or {}
     if _ok(rv.get("up30")) and _ok(rv.get("down30")):

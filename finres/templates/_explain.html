@@ -12,8 +12,8 @@
   <p class="errors" role="alert">{{ r.error }}</p>
   <button type="button" hx-post="/explain/{{ t }}?force=1" hx-target="#explain" hx-swap="outerHTML">Retry</button>
 {% elif mode == 'card' %}{% set d = r.data %}{% set g = r.grounding %}
-  {% set agree = d.verdict|upper == (r.model_label or '')|upper %}
-  <h3>Qwen: {{ label(d.verdict|upper) }} <span class="muted">({{ d.confidence }})</span> · Model: {{ label(r.model_label) }}
+  {% set agree = (d.verdict == 'buy') == (r.rule_label == 'UPTREND') %}
+  <h3>Qwen: {{ label(d.verdict|upper) }} <span class="muted">({{ d.confidence }})</span> · Rule: {{ label(r.rule_label) }}
     {% if not agree %}<span class="tag">disagrees</span>{% endif %}
     {% if cached %}<span class="tag">cached this week</span>{% endif %}</h3>
   <p>{{ d.thesis }}</p>
@@ -31,6 +31,6 @@
   {% else %}<p class="gbox ok">All numbers traced to the data</p>{% endif %}
   <p class="small muted">Qwen 3.8 (local) · xhigh · {{ r.seconds }} s · {{ r.prompt_version }} · {{ r.created }} · cached until Sunday ·
     <button type="button" class="small-btn" hx-post="/explain/{{ t }}?force=1" hx-target="#explain" hx-swap="outerHTML">Regenerate</button></p>
-  <p class="small muted">An opinion on the model’s numbers; it never changes the buy/sell plan.</p>
+  <p class="small muted">An opinion on the business and setup; it never changes the buy/sell plan (rules: ADR-005).</p>
 {% endif %}
 </div>
