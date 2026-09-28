@@ -77,6 +77,11 @@ def main() -> None:
     for rid in (24, 26):
         r = next(x for x in res if x["id"] == rid)
         md += ["", f"### Flow {rid} output ({r['name']})", "```", r["actual"].replace(" | ", "\n"), "```"]
+    md += ["", "### User-guide dry run (2026-09-27, by the tech lead)",
+           "Followed USER_GUIDE.md word for word on a fresh `git clone` into /tmp with a new Python 3.12 venv. "
+           "`pip install -r requirements.txt` installed cleanly. `pytest -q` gave 95 passed. `./run.sh` served the "
+           "page, the first visit auto-refreshed, and the page then showed \"Buy with $2,500 — 10 uptrend names × "
+           "$250\". Analyze NVDA rendered. The server log had zero errors or tracebacks."]
     md += ["", "Details for each flow (steps and every assertion) are in [results.json](results.json). "
            "To reproduce, see [e2e/README.md](../../e2e/README.md)."]
     (PROOF / "PROOF.md").write_text("\n".join(md) + "\n")

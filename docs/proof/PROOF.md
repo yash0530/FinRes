@@ -1,11 +1,11 @@
-# FinRes: proof that everything works (2026-09-27, commit `a740b55`)
+# FinRes: proof that everything works (2026-09-27, commit `681a36d`)
 
 Every user flow was driven **live**: real market data, real SEC data, real local Qwen 3.8. Each ran against a copy of the database, was asserted automatically, and then **every screenshot was checked by eye** by the tech lead (right-hand column).
 
 | Check | Result |
 |---|---|
 | Live user flows (`python -m e2e.flows`) | **26/26 passed** |
-| Unit/integration tests (`pytest -q`) | 95 passed, 1 warning in 4.20s |
+| Unit/integration tests (`pytest -q`) | 95 passed, 1 warning in 4.16s |
 | Lab↔app parity (identical composites and buys at 2 dates) | pass |
 | Independent data check (NVDA, VST, TSM vs yfinance recomputation) | pass |
 | Lab, out-of-sample 2019–26 (XIRR) | rule 40.3% · EW universe 36.1% · SMH DCA 39.9% (hindsight-biased universe) |
@@ -51,5 +51,8 @@ Every user flow was driven **live**: real market data, real SEC data, real local
 ✓ VST 2026-09-25: close 138.46/138.46, 12-1 -0.3041/-0.3041, sma200 155.16/155.16 (app/independent)
 ✓ TSM 2026-09-25: close 450.61/450.61, 12-1 0.4997/0.4997, sma200 381.35/381.35 (app/independent)
 ```
+
+### User-guide dry run (2026-09-27, by the tech lead)
+Followed USER_GUIDE.md word for word on a fresh `git clone` into /tmp with a new Python 3.12 venv. `pip install -r requirements.txt` installed cleanly. `pytest -q` gave 95 passed. `./run.sh` served the page, the first visit auto-refreshed, and the page then showed "Buy with $2,500 — 10 uptrend names × $250". Analyze NVDA rendered. The server log had zero errors or tracebacks.
 
 Details for each flow (steps and every assertion) are in [results.json](results.json). To reproduce, see [e2e/README.md](../../e2e/README.md).
