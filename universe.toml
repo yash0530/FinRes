@@ -1,0 +1,61 @@
+# FinRes universe — edit freely. One ticker per category (its primary exposure).
+# group = concentration-cap group (max 30% of portfolio per group).
+
+[categories.compute]
+name = "Compute & accelerators"
+group = "semis"
+tickers = ["NVDA", "AMD", "AVGO", "MRVL", "ARM", "TSM", "QCOM", "INTC", "CBRS", "NXPI", "TXN", "ADI", "ON", "MCHP", "MPWR"]
+
+[categories.equipment]
+name = "Chip equipment & EDA"
+group = "semis"
+tickers = ["ASML", "AMAT", "LRCX", "KLAC", "TER", "ONTO", "CAMT", "ENTG", "MKSI", "AMKR", "ACMR", "SNPS", "CDNS", "ACLS", "COHU", "FORM", "ICHR", "UCTT"]
+
+[categories.memory]
+name = "Memory & storage"
+group = "semis"
+tickers = ["MU", "SNDK", "WDC", "STX", "NTAP"]
+
+[categories.networking]
+name = "Networking & optical"
+group = "network"
+tickers = ["ANET", "CSCO", "CIEN", "COHR", "LITE", "FN", "CRDO", "ALAB", "AAOI", "GLW", "CLS", "APH", "TEL"]
+
+[categories.hyperscalers]
+name = "Hyperscalers"
+group = "cloud"
+tickers = ["MSFT", "AMZN", "GOOGL", "META", "ORCL"]
+
+[categories.software]
+name = "AI software"
+group = "cloud"
+tickers = ["PLTR", "NOW", "CRM", "SNOW", "DDOG", "MDB", "CRWD", "PANW", "ZS", "NET", "APP", "ADBE"]
+
+[categories.datacenter]
+name = "Datacenters & neoclouds"
+group = "infra"
+tickers = ["EQIX", "DLR", "IRM", "CRWV", "NBIS", "DELL", "SMCI", "HPE", "CORZ", "IREN", "APLD", "WULF", "CIFR", "DBRG", "AMT", "FLEX", "JBL", "SANM"]
+
+[categories.power]
+name = "Power generation"
+group = "infra"
+tickers = ["CEG", "VST", "TLN", "NRG", "NEE", "SO", "DUK", "AEP", "ETR", "D", "BE"]
+
+[categories.nuclear]
+name = "Nuclear & uranium"
+group = "infra"
+tickers = ["CCJ", "LEU", "BWXT", "OKLO", "SMR", "NNE", "XE", "UEC", "DNN", "NXE"]
+
+[categories.grid]
+name = "Grid & electrical"
+group = "infra"
+tickers = ["ETN", "GEV", "PWR", "HUBB", "POWL", "MYRG", "PRIM", "EMR", "GNRC", "WCC", "FLNC"]
+
+[categories.cooling]
+name = "Cooling & thermal"
+group = "infra"
+tickers = ["VRT", "MOD", "TT", "JCI", "AAON", "SPXC", "NVT", "CARR", "DOV", "XYL", "WTS"]
+
+[laggards]
+note = "Lab-only: AI-era disappointments still listed. Reduces hindsight bias in backtests. Not ranked in the app."
+tickers = ["AI", "SOUN", "BBAI", "AMBA", "IONQ", "PLUG", "FCEL", "BLNK", "U", "PATH", "UPST", "RGTI", "QUBT", "WOLF", "LAZR", "MRVI"]
