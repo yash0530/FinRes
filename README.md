@@ -11,7 +11,7 @@ See **[USER_GUIDE.md](USER_GUIDE.md)** for how to use it. For proof that every f
 
 ## What the evidence said (short version)
 - **v1:** a momentum and quality ranking did not beat owning every uptrend stock equally. The app therefore ships the simple rule: **$2,500 across 10 uptrend names, least-held first; sell after 2 month-ends below the 200-day average or at −35%** ([ADR-005](DECISIONS.md)).
-- **Month 2, hindsight-free re-test:** the universe is rebuilt each year from 10-K text, so it includes companies that later died. Over 2010–26 the rule returned 25% XIRR, **SMH 30%**, and equal-weight buy-and-hold **44%**. The rule's edge only appears on the hand-picked 2026 list ([ADR-009](DECISIONS.md), [lab/REPORT.md](lab/REPORT.md)).
+- **Month 2, hindsight-free re-test:** the universe is rebuilt each year from 10-K text, so it includes companies that later died. Over 2010–26 the rule returned 27% XIRR, **SMH 30%**, and equal-weight buy-and-hold **44%**. The rule's edge only appears on the hand-picked 2026 list ([ADR-009](DECISIONS.md), [lab/REPORT.md](lab/REPORT.md)).
 - The app keeps the rule, shows this plainly, and runs **forward shadow portfolios** (rule vs equal-weight-hold vs SMH) so live data can decide.
 - News, X and Reddit sentiment has no monthly edge for large caps. The app only flags serious SEC 8-K events ([ADR-006](DECISIONS.md)). Local Qwen writes grounded bull/bear notes, and every number is traced back to the data.
 

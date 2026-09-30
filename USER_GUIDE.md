@@ -51,7 +51,7 @@ Everything else on the page, including grades, "Rank" and Qwen's opinion, is **r
   | | Rule | Equal weight, hold | SMH (monthly buys) |
   |---|---|---|---|
   | Hand-picked 2026 list, 2019–26 (hindsight-biased) | 40% | 37% | 40% |
-  | **Hindsight-free list, rebuilt each year from 10-Ks, 2010–26** | **25%** | **44%** | **30%** |
+  | **Hindsight-free list, rebuilt each year from 10-Ks, 2010–26** | **27%** | **44%** | **30%** |
 
   The rule only looks strong on a list picked with hindsight. **Without hindsight it did not beat SMH, and it trailed simply buying everything and holding.** Its trend exits tend to sell the rare 10× winners (see [ADR-009](DECISIONS.md)).
 - The app keeps the rule for now, because nothing beat it under the pre-registered tests. The Track record tab runs three **forward shadow portfolios** from Sep 2026: the rule, equal-weight-hold, and SMH, each with the same $2,500/month. In 6–12 months that is real, hindsight-free evidence. Use it to decide.
