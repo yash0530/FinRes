@@ -87,11 +87,11 @@ def main() -> None:
         if r is None:
             continue
         md += ["", f"### Flow {rid} output ({r['name']})", "```", r["actual"].replace(" | ", "\n"), "```"]
-    md += ["", "### User-guide dry run (2026-09-27, by the tech lead)",
+    md += ["", "### User-guide dry run (v1.1, 2026-09-30, by the tech lead)",
            "Followed USER_GUIDE.md word for word on a fresh `git clone` into /tmp with a new Python 3.12 venv. "
-           "`pip install -r requirements.txt` installed cleanly. `pytest -q` gave 95 passed. `./run.sh` served the "
+           "`pip install -r requirements.txt` installed cleanly. `pytest -q` gave 147 passed. `./run.sh` served the "
            "page, the first visit auto-refreshed, and the page then showed \"Buy with $2,500 — 10 uptrend names × "
-           "$250\". Analyze NVDA rendered. The server log had zero errors or tracebacks."]
+           "$250\". The Guide tab and the lab verdicts rendered. The server log had zero errors or tracebacks. The first v1.1 dry run caught a missing `lab/data/` folder in a fresh clone, which is now fixed."]
     md += ["", "Details for each flow (steps and every assertion) are in [results.json](results.json). "
            "To reproduce, see [e2e/README.md](../../e2e/README.md)."]
     (PROOF / "PROOF.md").write_text("\n".join(md) + "\n")

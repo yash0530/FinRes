@@ -1,11 +1,11 @@
-# FinRes: proof that everything works (2026-09-30, commit `c2b7f44`)
+# FinRes: proof that everything works (2026-09-30, commit `f5dce9d`)
 
 Every user flow was driven **live**: real market data, real SEC data, real local Qwen 3.8. Each ran against a copy of the database, was asserted automatically, and then **every screenshot was checked by eye** by the tech lead (right-hand column).
 
 | Check | Result |
 |---|---|
 | Live user flows (`python -m e2e.flows`) | **30/30 passed** |
-| Unit/integration tests (`pytest -q`) | 147 passed, 1 warning in 8.51s |
+| Unit/integration tests (`pytest -q`) | 147 passed, 1 warning in 8.43s |
 | Lab↔app parity (identical composites and buys at 2 dates) | pass |
 | Independent data check (NVDA, VST, TSM vs yfinance recomputation) | pass |
 | Lab, out-of-sample 2019–26 (XIRR) | rule 40.0% · EW universe 36.9% · SMH DCA 39.9% (hindsight-biased universe) |
@@ -80,7 +80,7 @@ $5,471
 ✓ (c) values match state._shadow_rows replay: Shipped rule (B0R · S2) $5,077.49 XIRR +34.2%, Equal-weight universe $5,071.42 XIRR +31.1%, SMH DCA $5,471.31 XIRR +435.8%
 ```
 
-### User-guide dry run (2026-09-27, by the tech lead)
-Followed USER_GUIDE.md word for word on a fresh `git clone` into /tmp with a new Python 3.12 venv. `pip install -r requirements.txt` installed cleanly. `pytest -q` gave 95 passed. `./run.sh` served the page, the first visit auto-refreshed, and the page then showed "Buy with $2,500 — 10 uptrend names × $250". Analyze NVDA rendered. The server log had zero errors or tracebacks.
+### User-guide dry run (v1.1, 2026-09-30, by the tech lead)
+Followed USER_GUIDE.md word for word on a fresh `git clone` into /tmp with a new Python 3.12 venv. `pip install -r requirements.txt` installed cleanly. `pytest -q` gave 147 passed. `./run.sh` served the page, the first visit auto-refreshed, and the page then showed "Buy with $2,500 — 10 uptrend names × $250". The Guide tab and the lab verdicts rendered. The server log had zero errors or tracebacks. The first v1.1 dry run caught a missing `lab/data/` folder in a fresh clone, which is now fixed.
 
 Details for each flow (steps and every assertion) are in [results.json](results.json). To reproduce, see [e2e/README.md](../../e2e/README.md).
