@@ -6,12 +6,14 @@
 - The hindsight-free universe is honest but noisy: about 40% of the "AI-exposed" matches are boilerplate.
 - Forward shadow portfolios (rule, EW-hold, SMH) start 2026-09-30.
 
-## Principle
+## Principle (Yash, 2026-09-30: single page, simplicity first, focus only on making money)
 Months of work don't create edge. v2 spends its budget on **(1) cleaner evidence, (2) one well-tested decision, and (3) making the monthly ritual faster and safer.** Hard rules still apply:
 - app ≤ 1,500 LOC
 - 1 page (plus the Guide tab)
 - no daemons
 - one LLM role in the app; offline research may use Qwen
+
+## Order of work: B (money decision) → A (evidence quality) → D (don't miss new winners) → E
 
 ## Phase A: cleaner hindsight-free universe (ADR-010)
 - For every eligible 10-K (base + R-A universes), extract Item 1 "Business" (first ~1,500 words) and anonymize it by replacing the company's names and tickers with "the Company".
@@ -31,10 +33,8 @@ Months of work don't create edge. v2 spends its budget on **(1) cleaner evidence
   It must also stay within 10 pts of B0R's max drawdown on each set. Otherwise B0R stays.
 - B0H joins the forward shadow ledgers either way.
 
-## Phase C: the monthly ritual (app, within budget)
-- **Order ticket:** a copyable block, plus a CSV download of this month's buys (ticker, $, approximate shares, limit guide = last close). It saves typing at the broker.
-- **Record real fills:** "I placed these buys" accepts the actual fill prices (optional, prefilled with last close), so holdings and the track record use real costs.
-- **Holdings risk line:** weight by group, largest position, and the portfolio drawdown from its peak. This is information, not a rule.
+## Phase C: CUT (2026-09-30, Yash: "single page, simplicity first, focus only on making me money")
+The order ticket, fill recording and risk line are conveniences, not returns, so they are not built.
 
 ## Phase D: keep the universe honest going forward
 - `python -m research.pit_universe.review` scans the latest year's 10-Ks and lists **candidate additions**. These are companies that pass the text + Qwen screen and are not in `universe.toml`, each with its role and evidence line. Yash approves by editing `universe.toml`. It runs once a year; no automatic changes.
