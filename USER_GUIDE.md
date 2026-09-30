@@ -42,18 +42,21 @@ Everything else on the page, including grades, "Rank" and Qwen's opinion, is **r
   - **Revisions:** whether analysts have been raising estimates. This one is live-only and unvalidated.
   - **Rank:** the blend of the three. *In the lab it did not beat equal weight*, which is why it only breaks ties.
 - **Categories:** all 129 stocks in 11 groups, with how many are in an uptrend. Click a ticker to analyze it. The tag **SPEC** means the company is losing money. **stale** means the data is old.
-- **Track record:** your recorded monthly buys vs SMH and the equal-weight universe over the same window, plus the lab headline.
+- **Track record:** your recorded monthly buys vs SMH and the equal-weight universe over the same window, the forward shadow portfolios (rule vs equal-weight-hold vs SMH since Sep 2026), and the lab verdicts.
+- **What changed:** under the plan title, the new uptrends, lost uptrends and new SEC 8-K flags since last week.
 
 ## What to expect (honest)
-- **Backtest** (`lab/REPORT.md`, 2019–2026 out-of-sample):
-  - the rule: about 40% a year
-  - the equal-weight universe: 36%
-  - monthly buys of SMH: 40%
+- **Two backtests, two different answers:**
 
-  These numbers are **inflated**, because the universe was chosen in 2026 with hindsight.
-- **The rule is not magic.** It beat equal weight in 8 of 14 years. It lagged badly in 2025 and so far in 2026 (+7% vs SMH +46%), because trend filters whipsaw in choppy markets.
-- **SMH, a single ETF, did about as well** with zero effort. You chose individual stocks, and that's fine. Just know the evidence doesn't say this app beats SMH.
-- **The biggest edge is discipline:** same rules every month, no cherry-picking. Investors who overrode a ranking system did worse than those who followed it.
+  | | Rule | Equal weight, hold | SMH (monthly buys) |
+  |---|---|---|---|
+  | Hand-picked 2026 list, 2019–26 (hindsight-biased) | 40% | 37% | 40% |
+  | **Hindsight-free list, rebuilt each year from 10-Ks, 2010–26** | **25%** | **44%** | **30%** |
+
+  The rule only looks strong on a list picked with hindsight. **Without hindsight it did not beat SMH, and it trailed simply buying everything and holding.** Its trend exits tend to sell the rare 10× winners (see [ADR-009](DECISIONS.md)).
+- The app keeps the rule for now, because nothing beat it under the pre-registered tests. The Track record tab runs three **forward shadow portfolios** from Sep 2026: the rule, equal-weight-hold, and SMH, each with the same $2,500/month. In 6–12 months that is real, hindsight-free evidence. Use it to decide.
+- **The tech lead's opinion:** if you want the simplest robust choice, buy SMH monthly. If you want individual stocks, "buy all uptrend names equally and don't sell on trend breaks" is at least as well supported as the current exits. It's your call.
+- **The biggest edge is discipline:** same rules every month, no cherry-picking.
 
 ## Troubleshooting
 | Symptom | Fix |

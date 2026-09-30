@@ -151,9 +151,17 @@ def _lab() -> dict | None:
     except (OSError, ValueError, KeyError, TypeError, IndexError):
         return None
     gates = "passed" if all((oos.get("rule") or {"_": False}).values()) else "failed"
-    return {"headline": f"Lab ({y0}–{y1}, out-of-sample): uptrend rotation {rot:.1%} vs equal-weight universe "
-                        f"{ew:.1%} vs SMH DCA {smh:.1%} XIRR; the ranking model {sel:.1%} {gates} its gates. "
-                        "Hindsight-biased universe: absolute numbers are inflated."}
+    out = {"headline": f"Lab ({y0}–{y1}, out-of-sample): uptrend rotation {rot:.1%} vs equal-weight universe "
+                       f"{ew:.1%} vs SMH DCA {smh:.1%} XIRR; the ranking model {sel:.1%} {gates} its gates. "
+                       "Hindsight-biased universe: absolute numbers are inflated."}
+    try:  # ADR-009: the hindsight-free re-test (point-in-time universe from 10-Ks)
+        h = {r["name"]: float(r["xirr"]) for r in json.loads((LAB_DIR / "h1.json").read_text())["ai_pit"]["rows"]}
+        out["pit"] = (f"Hindsight-free re-test (2010–2026, universe rebuilt each year from 10-Ks): rule "
+                      f"{h['rule (ew_trend10)']:.1%} vs equal-weight hold {h['EW (ew_all)']:.1%} vs SMH DCA "
+                      f"{h['DCA SMH']:.1%} XIRR. The rule did not beat SMH without hindsight (ADR-009).")
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return out
 
 
 def _track(conn, fr: dict | None) -> dict:

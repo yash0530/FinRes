@@ -278,3 +278,25 @@ Per ADR-004, **B0 ships**.
 The frozen keyword threshold (≥ 5 per 10k words) made the point-in-time universe thin: fewer than 40 eligible names in most months, so the rule mostly behaves like equal weight. H1 alone therefore can't separate the rule from EW. These runs are **reported, never used for selection**:
 - **R-A:** same dictionary, threshold ≥ 2 per 10k words.
 - **R-B:** "generic tech" dictionary (compute + network groups only), threshold ≥ 5.
+
+## ADR-009: Month-2 verdict (2026-09-30)
+**Result** (`lab/REPORT.md`, pre-registered in ADR-004d/007/007a):
+- **Hindsight-free universe, 2010–2026.** This is the list of companies that looked AI- or datacenter-exposed at the time, 250 companies in all.
+  - The shipped rule returned **25.1%** XIRR, vs **29.7%** for SMH DCA and **44.0%** for equal weight across every eligible name, never selling.
+  - With the delisting stress test: 25.4% / 29.7% / 41.2%.
+  - With the broader universe (R-A, 323 names): rule 29.2% vs EW-hold 36.4% vs SMH 29.7%.
+- **The rule trails EW-hold in every hindsight-free universe tested** and at best ties SMH. Its trend exits sell the rare 10× winners, such as AAOI, SMCI and NVDA, that drive thematic returns (Bessembinder skew).
+- **Hand-picked 2026 universe (hindsight-biased), after the ADR-004d fix.** Out-of-sample, the rule returned 40.0% vs EW 36.9% vs SMH 39.9%. The rule beat EW in 10 of 14 years. So the rule's apparent edge appears only on the winner-picked list.
+- **H2.** No variant (Faber monthly, 2% band, FIP) passed all gates, so **B0R stays shipped**. That is the pre-registered outcome, with no automatic switch.
+- **Data quality.** In the spot check of 30 random "exposed" filings (`research/pit_universe/spot_check.md`), 15 are real, 3 partial and 12 boilerplate (SaaS vendors mentioning their own data centers or internal ML). The hindsight-free universe is honest but noisy. Tiingo was never keyed, so 59 delisted names are covered only by the stress test.
+
+**What the app does now.**
+- It keeps B0R + S2.
+- It states this evidence in the Track record lab note and in the Guide, and the tech lead's opinion is labelled as such.
+- It tracks three **forward shadow portfolios** (rule, equal-weight-hold, SMH) from 2026-09-30, so that hindsight-free *live* data settles the question in 6–12 months.
+
+**TL opinion (Yash decides; not a rule change).**
+- The honest evidence does not show that this app's stock rule beats monthly SMH buys.
+- If you want individual stocks, "buy equal amounts of every uptrend name and don't sell on trend breaks" is at least as well supported as the current exits.
+- The simplest robust choice is SMH.
+- Watch the shadow portfolios before changing anything.

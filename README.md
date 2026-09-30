@@ -10,9 +10,10 @@ A one-page local web app for investing **$2,500 a month in individual US AI and 
 See **[USER_GUIDE.md](USER_GUIDE.md)** for how to use it. For proof that every flow works, with screenshots, see **[docs/proof/PROOF.md](docs/proof/PROOF.md)**.
 
 ## What the evidence said (short version)
-- A momentum and quality **ranking did not beat simply owning every uptrend stock equally**. It failed all three pre-registered out-of-sample gates. So the app ships the simple rule: **$2,500 split across 10 uptrend names, least-held first; sell after 2 month-ends below the 200-day average or at −35%** ([ADR-005](DECISIONS.md), [lab/REPORT.md](lab/REPORT.md)).
-- In the out-of-sample period (2019–26), the rule returned ~40% XIRR vs 36% for the equal-weight universe and 40% for monthly SMH buys. All three numbers are inflated by hindsight in the universe. The rule lagged in 2025–26.
-- News, X and Reddit sentiment has no monthly edge for large caps. The app only flags serious SEC 8-K events as warnings ([ADR-006](DECISIONS.md)). Local Qwen writes grounded bull/bear notes, and every number it uses is traced back to the data.
+- **v1:** a momentum and quality ranking did not beat owning every uptrend stock equally. The app therefore ships the simple rule: **$2,500 across 10 uptrend names, least-held first; sell after 2 month-ends below the 200-day average or at −35%** ([ADR-005](DECISIONS.md)).
+- **Month 2, hindsight-free re-test:** the universe is rebuilt each year from 10-K text, so it includes companies that later died. Over 2010–26 the rule returned 25% XIRR, **SMH 30%**, and equal-weight buy-and-hold **44%**. The rule's edge only appears on the hand-picked 2026 list ([ADR-009](DECISIONS.md), [lab/REPORT.md](lab/REPORT.md)).
+- The app keeps the rule, shows this plainly, and runs **forward shadow portfolios** (rule vs equal-weight-hold vs SMH) so live data can decide.
+- News, X and Reddit sentiment has no monthly edge for large caps. The app only flags serious SEC 8-K events ([ADR-006](DECISIONS.md)). Local Qwen writes grounded bull/bear notes, and every number is traced back to the data.
 
 ## Honest framing
 No app can guarantee profit. FinRes aims for the next best thing:
@@ -27,13 +28,14 @@ FinRes exists because five earlier apps died of bloat. These limits are the prod
 | Limit | Value |
 |---|---|
 | Pages | 1 |
-| SQLite tables | 5 (prices, snapshot, thesis, holdings, picks) |
+| SQLite tables | 6 (prices, snapshot, thesis, holdings, picks, shadow) |
 | Schedulers / daemons | 0 |
 | LLM roles | 1 (on-demand thesis writer) |
 | Processes | 1 (`./run.sh`) |
 | `finres/*.py` | ≤ 1,500 lines (`tests/test_budget.py` fails the build) |
 | templates + CSS | ≤ 600 lines |
-| `lab/` | ≤ 600 lines, never imported by the app |
+| `lab/` | ≤ 850 lines, never imported by the app |
+| `research/` | ≤ 450 lines, never imported by the app |
 
 **Out of scope:** multi-agent debates, portfolio optimizers, options, 13F, insider, sentiment, alerts, auth, cloud deploy, broker connections, taxes.
 **New ideas** go to [SOMEDAY.md](SOMEDAY.md) first.

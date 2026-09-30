@@ -130,6 +130,7 @@
   {% else %}<p class="empty">Starts after the first completed month-end (2026-09-30) and the next refresh.</p>{% endif %}
   <h3>Backtest (lab)</h3>
   <p>{% if s.lab %}{{ s.lab.headline }}{% else %}Validation pending — see lab/REPORT.md{% endif %}</p>
+  {% if s.lab and s.lab.pit %}<p><strong>{{ s.lab.pit }}</strong></p>{% endif %}
 </section>
 </main>
 <footer class="wrap small muted">Research tool, not advice. Rules and evidence: DECISIONS.md · lab/REPORT.md</footer>
