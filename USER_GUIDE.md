@@ -54,8 +54,9 @@ Two backtests gave two different answers:
 | **Hindsight-free list, rebuilt each year from 10-Ks, 2010–26** | **27%** | **44%** | **30%** |
 
 - The rule only looks strong on a list picked with hindsight. **Without hindsight it did not beat SMH, and it trailed simply buying everything and holding.** Its trend exits tend to sell the rare 10× winners (see [ADR-009](DECISIONS.md)).
-- The app keeps the rule for now, because nothing beat it under the pre-registered tests. The Track record section runs three **forward shadow portfolios** from Sep 2026: the rule, equal-weight-hold, and SMH, each with the same $2,500/month. In 6–12 months that is real, hindsight-free evidence. Use it to decide.
-- **The tech lead's opinion:** if you want the simplest robust choice, buy SMH monthly. If you want individual stocks, "buy all uptrend names equally and don't sell on trend breaks" is at least as well supported as the current exits. It's your call.
+- **"Buy uptrend, hold" (B0H)** uses the same buys as the rule but never sells on a trend break, only at −35%. It beat the rule on all 4 hindsight-free tests (e.g. 45% vs 27%), but lost on the hand-picked list (37% vs 40%). The pre-registered switch rule needed all 5, so the app keeps the rule ([ADR-011](DECISIONS.md)).
+- The Track record section runs four **forward shadow portfolios** from Sep 2026: the rule, buy-uptrend-hold, equal-weight-hold, and SMH, each with the same $2,500/month. In 6–12 months that is real, hindsight-free evidence. Use it to decide.
+- **The tech lead's opinion:** if you want the simplest robust choice, buy SMH monthly. If you want individual stocks, B0H ("same buys, don't sell on trend breaks") has the stronger hindsight-free record. You can follow it today by simply ignoring the "2 month-ends below 200DMA" sells and acting only on "-35% stop". It's your call.
 - **The biggest edge is discipline:** same rules every month, no cherry-picking.
 
 ## Troubleshooting
