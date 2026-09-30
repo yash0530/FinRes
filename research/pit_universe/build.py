@@ -1,11 +1,5 @@
 """ADR-007 PIT universe build. CLI: python -m research.pit_universe.build {universe|map|facts|prices|report}"""
-import argparse
-import csv
-import gzip
-import io
-import os
-import time
-import zipfile
+import argparse, csv, gzip, io, os, time, zipfile  # noqa: E401
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -14,7 +8,7 @@ import httpx
 import pandas as pd
 
 from finres import db, prices
-from research.pit_universe.scan import DATA, HERE, WORKERS, fetch, guard, log_error, read_csv, write_csv
+from research.pit_universe.scan import DATA, GROUPS, HERE, UTILITY_SIC, WORKERS, fetch, guard, log_error, read_csv, write_csv
 
 YEARS = range(2010, 2027)
 EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "AMEX", "NYSE ARCA"}
@@ -25,12 +19,18 @@ LAB_DB = HERE.parents[1] / "lab" / "data" / "lab.db"
 ELIG_COLS = ["year", "cik", "name", "sic", "symbols_from_filing", "filed"]
 UNI_COLS = ["year", "cik", "name", "sic", "group", "ticker", "tiingo_start", "tiingo_end", "exchange", "status",
             "filed", "last_10k"]
+TAG = ""  # ADR-007a robustness universes: "_ra" / "_rb" suffix on every output; "" = the frozen ADR-007 universe
 
 
 # ---------- step 1: universe ----------
 
-def eligible(scores: list[dict], names: dict | None = None) -> list[dict]:
+def eligible(scores: list[dict], names: dict | None = None, rule: tuple | None = None) -> list[dict]:
     """Company-years: year Y uses the CIK's LATEST 10-K filed in Y-1 (by filing date); kept iff in_group & eligible_text."""
+    # rule=(threshold, groups) re-derives eligible_text from the stored hits (ADR-007a robustness universes);
+    # utility/uranium SICs keep the power/10k >= 2 rule while "power" is one of the groups.
+    per = lambda r, gs: 1e4 * sum(int(r[f"hits_{g}"]) for g in gs) / max(int(r["words"]), 1)  # noqa: E731
+    ok = lambda r: r.get("eligible_text") == "1" if rule is None else per(r, ["power"]) >= 2 if int(  # noqa: E731
+        r["sic_filing"]) in UTILITY_SIC and "power" in rule[1] else per(r, rule[1]) >= rule[0]
     latest: dict = {}
     for r in scores:
         k = (int(r["filed"][:4]) + 1, int(r["cik"]))
@@ -39,14 +39,14 @@ def eligible(scores: list[dict], names: dict | None = None) -> list[dict]:
     return [{"year": y, "cik": c, "name": (names or {}).get(str(c), ""), "sic": r["sic_filing"],
              "symbols_from_filing": r.get("symbols") or "", "filed": r["filed"]}
             for (y, c), r in sorted(latest.items())
-            if y in YEARS and r.get("in_group") == "1" and r.get("eligible_text") == "1"]
+            if y in YEARS and r.get("in_group") == "1" and ok(r)]
 
 
-def step_universe() -> None:
+def step_universe(rule=None) -> None:
     names = {r["cik"]: r["company"] for r in read_csv(DATA / "tenk_index.csv")}
     names |= {r["cik"]: r["name"] for r in read_csv(DATA / "companies.csv") if r["name"]}
-    rows = eligible(read_csv(DATA / "scores.csv"), names)
-    write_csv(DATA / "eligible.csv", rows, ELIG_COLS)
+    rows = eligible(read_csv(DATA / "scores.csv"), names, rule)
+    write_csv(DATA / f"eligible{TAG}.csv", rows, ELIG_COLS)
     print(f"{len(rows)} eligible company-years:", dict(sorted(Counter(r["year"] for r in rows).items())))
 
 
@@ -134,10 +134,10 @@ def map_rows(elig: list[dict], scores: list[dict], sub_tickers: dict, tiingo: di
 
 def step_map() -> None:
     sub = {r["cik"]: r["tickers"] for r in read_csv(DATA / "companies.csv")}
-    rows, review = map_rows(read_csv(DATA / "eligible.csv"), read_csv(DATA / "scores.csv"), sub, load_tiingo())
-    write_csv(HERE / "universe.csv", rows, UNI_COLS)
-    write_csv(DATA / "unmapped.csv", review, UNI_COLS + ["reason", "candidates"])
-    print(f"universe.csv: {len(rows)} company-years; review list: {Counter(r['reason'] for r in review)}")
+    rows, review = map_rows(read_csv(DATA / f"eligible{TAG}.csv"), read_csv(DATA / "scores.csv"), sub, load_tiingo())
+    write_csv(HERE / f"universe{TAG}.csv", rows, UNI_COLS)
+    write_csv(DATA / f"unmapped{TAG}.csv", review, UNI_COLS + ["reason", "candidates"])
+    print(f"universe{TAG}.csv: {len(rows)} company-years; review list: {Counter(r['reason'] for r in review)}")
     step_report()
 
 
@@ -154,7 +154,7 @@ def load_facts(cik: int) -> str:
 def step_facts() -> None:
     """companyfacts for every eligible CIK (mapped or not: the stress test needs the revenue floor for both)."""
     (DATA / "facts").mkdir(parents=True, exist_ok=True)
-    ciks = sorted({int(r["cik"]) for r in read_csv(HERE / "universe.csv")})
+    ciks = sorted({int(r["cik"]) for r in read_csv(HERE / f"universe{TAG}.csv")})
     with ThreadPoolExecutor(WORKERS) as ex:
         res = list(ex.map(lambda c: guard(load_facts, c), ciks))
     [log_error("facts", str(c), err) for c, (_, err) in zip(ciks, res) if err]
@@ -213,7 +213,8 @@ def price_plan(rows: list[dict]) -> tuple[dict, list[dict]]:
 
 def step_prices() -> None:
     conn = db.connect(LAB_DB)
-    listed, todo = price_plan(read_csv(HERE / "universe.csv"))
+    base = {r["cik"] for r in read_csv(HERE / "universe.csv")} if TAG else set()  # robustness: only NEW CIKs
+    listed, todo = price_plan([r for r in read_csv(HERE / f"universe{TAG}.csv") if r["cik"] not in base])
     bench = [b for b in ("SPY", "QQQ", "SMH") if not conn.execute("SELECT 1 FROM prices WHERE ticker=?", (b,)).fetchone()]
     closes, failed = prices.download(sorted({r["ticker"] for r in listed.values()}) + bench, period="max")
     prices.store(conn, closes[[b for b in bench if b in closes]])
@@ -225,7 +226,7 @@ def step_prices() -> None:
     key = os.environ.get("TIINGO_API_KEY")
     left = tiingo_fetch(todo, key, store) if key else len(todo)
     spans = priced_spans(conn)
-    write_csv(DATA / "unpriced.csv", [u for u in todo if u["cik"] not in spans], list(todo[0]) if todo else [])
+    write_csv(DATA / f"unpriced{TAG}.csv", [u for u in todo if u["cik"] not in spans], list(todo[0]) if todo else [])
     print(f"tiingo: {'no TIINGO_API_KEY, skipped' if not key else 'done'}; {left} of {len(todo)} delisted CIKs unpriced")
     step_report()
 
@@ -255,16 +256,22 @@ def coverage(rows: list[dict], review: list[dict], spans: dict) -> str:
 
 
 def step_report() -> None:
-    md = coverage(read_csv(HERE / "universe.csv"), read_csv(DATA / "unmapped.csv"), priced_spans(db.connect(LAB_DB)))
-    (HERE / "coverage.md").write_text(md)
+    md = coverage(read_csv(HERE / f"universe{TAG}.csv"), read_csv(DATA / f"unmapped{TAG}.csv"),
+                  priced_spans(db.connect(LAB_DB)))
+    (HERE / f"coverage{TAG}.md").write_text(md)
     print(md)
 
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="python -m research.pit_universe.build")
     ap.add_argument("step", choices=["universe", "map", "facts", "prices", "report"])
+    # ADR-007a: universe --threshold 2 --tag ra (R-A); universe --groups compute,network --tag rb (R-B); then map,
+    # facts, prices with the same --tag (outputs get a _ra/_rb suffix; prices only for CIKs not in universe.csv).
+    [ap.add_argument(f) for f in ("--threshold", "--groups", "--tag")]
     a = ap.parse_args(argv)
-    {"universe": step_universe, "map": step_map, "facts": step_facts, "prices": step_prices, "report": step_report}[a.step]()
+    globals()["TAG"] = f"_{a.tag}" if a.tag else ""
+    rule = (float(a.threshold or 5), a.groups.split(",") if a.groups else GROUPS) if a.threshold or a.groups else None
+    {"universe": lambda: step_universe(rule), "map": step_map, "facts": step_facts, "prices": step_prices, "report": step_report}[a.step]()
 
 
 if __name__ == "__main__":

@@ -243,3 +243,188 @@ def test_h1_phase_and_report_on_synthetic(monkeypatch, tmp_path):
     md = (tmp_path / "lab" / "REPORT.md").read_text()
     assert "## Hindsight-free re-test (ADR-007)" in md and "STRESS TEST" in md and "Frozen words here." in md
     assert "| 2016 | 60 |" in md
+
+
+# ---------- ADR-007 H2 variants ----------
+
+def _fac(closes, t):
+    f = bt.signals.factors_at(closes, t)
+    return f[f["n_days"] > 0]
+
+
+def test_v1_month_end_sma10_on_monthly_ramp():
+    """Monthly ramp: each month's closes are constant at the month number; SMA10 = mean of the last 10 month-ends."""
+    idx = pd.bdate_range("2015-01-01", "2017-06-30")
+    k = (idx.year - 2015) * 12 + idx.month  # 1, 2, 3, ...
+    up = pd.Series(k.astype(float), index=idx)
+    closes = pd.DataFrame({"UP": up, "DN": 100.0 - up})
+    monthly = closes.ffill(limit=4).loc[bt.signals.month_ends(idx)]
+    t = bt.signals.month_ends(idx)[20]  # month 21
+    v = bt.variant_signals(closes, monthly, t, _fac(closes, t))
+    assert v.at["UP", "v1_level"] == pytest.approx(np.mean(np.arange(12, 22)))  # months 12..21, t included
+    assert v.at["DN", "v1_level"] == pytest.approx(100 - np.mean(np.arange(12, 22)))
+    assert bool(v.at["UP", "v1_up"]) and not bool(v.at["UP", "v1_below"])
+    assert not bool(v.at["DN", "v1_up"]) and bool(v.at["DN", "v1_below"])
+    t = bt.signals.month_ends(idx)[8]  # only 9 month-ends: no SMA10 -> never buyable, exit can't fire
+    v = bt.variant_signals(closes, monthly, t, _fac(closes, t))
+    assert v["v1_level"].isna().all() and not v["v1_up"].any() and not v["v1_below"].any()
+
+
+def test_v2_band_entry_and_exit():
+    fac = pd.DataFrame({"close": [103.0, 101.0, 103.0, 99.0, 97.0], "sma200": 100.0,
+                        "sma50": [101.0, 101.0, 99.0, 101.0, 101.0], "ret_12_1": 0.1}, index=list("ABCDE"))
+    closes = pd.DataFrame(100.0, index=pd.bdate_range("2016-01-01", periods=30), columns=fac.index)
+    v = bt.variant_signals(closes, closes.iloc[[-1]], closes.index[-1], fac)
+    assert list(v["v2_up"]) == [True, False, False, False, False]  # > 1.02 x SMA200 and SMA50 > SMA200
+    assert list(v["v2_below"]) == [False, False, False, False, True]  # < 0.98 x SMA200 only
+
+
+def test_fip_id_smooth_vs_jumpy_and_zero_days():
+    w = pd.DataFrame({"smooth": [100, 101, 102, 103, 104.0], "jumpy": [100, 100, 100, 100, 130.0],
+                      "flat_mix": [100, 110, 110, 110, 105.0], "down": [100, 99, 98, 97, 120.0],
+                      "neg": [100, 90, 95, 95, 94.0]})
+    idv = bt.fip_id(w)
+    assert idv["smooth"] == pytest.approx(-1.0)  # 4 up days of 4
+    assert idv["jumpy"] == pytest.approx(-0.25)  # 1 up day; the 3 zero days only enter the denominator
+    assert idv["flat_mix"] == pytest.approx(0.0)  # 1 up, 1 down, 2 zero
+    assert idv["down"] == pytest.approx(0.5)  # PRET > 0 but 3 of 4 days down: jumpy, 2/4 net negative
+    assert idv["neg"] == pytest.approx(-0.25)  # PRET < 0 flips the sign: -(2/4 - 1/4)
+    assert idv["smooth"] < idv["jumpy"]  # smooth momentum has the lower ID (kept by V3)
+
+
+def test_fip_pool_top_third_then_lower_half():
+    names = [f"N{i}" for i in range(10)] + ["OFF"]
+    scored = pd.DataFrame({"eligible": True, "composite": 0.5, "trend": [True] * 10 + [False]}, index=names)
+    var = pd.DataFrame({"mom": [0.1 * i for i in range(10)] + [9.0],  # OFF has the best momentum but no uptrend
+                        "fip": [0, 0, 0, 0, 0, 0, -0.2, -0.9, -0.1, -0.5, -1.0]}, index=names)
+    keep = bt.fip_pool(scored, var)
+    # pool 10 -> top ceil(10/3)=4 by momentum (N9, N8, N7, N6) -> lower ceil(4/2)=2 by ID (N7 -0.9, N9 -0.5)
+    assert keep == ["N7", "N9"]
+    assert bt.fip_pool(scored.iloc[:7], var) == ["N6", "N5"]  # 7 -> 3 (N6, N5, N4) -> 2: N6 (-0.2), then the N5/N4 tie by momentum order
+    assert len(bt.fip_pool(scored.iloc[:7], var.assign(fip=-var["mom"]))) == 2
+
+
+@pytest.mark.parametrize("pick", ["v1", "v2", "v3"])
+def test_variants_buy_only_gate_passers_least_held_and_group_limit(monkeypatch, pick):
+    closes, spy, groups = _closes()
+    ctx = _ctx(closes, spy, groups)
+    calls, real = [], model.buy_list
+
+    def spy_buy(scored, positions, groups_, cfg, brake, budget):
+        out = real(scored, positions, groups_, cfg, brake, budget)
+        calls.append((scored, positions, cfg, out))
+        return out
+    monkeypatch.setattr(model, "buy_list", spy_buy)
+    res = bt.simulate(ctx, {}, "2016-01", "2026-08", pick)
+    assert not res["ledger"]["unscored"].any() and len(calls) == len(res["ledger"])
+    bought = 0
+    for t, (scored, positions, cfg, out) in zip(bt._months(ctx, "2016-01", "2026-08"), calls):
+        gate = bt.variant_gate(pick, bt.scored_at(ctx, t, "W1"), ctx["var"][t])
+        assert cfg == {"buy": "B0R"} and scored["trend"].equals(gate)
+        names = [b["ticker"] for b in out]
+        assert set(names) <= set(gate.index[gate]) and len(names) <= 10
+        assert max(pd.Series([groups[k] for k in names]).value_counts(), default=0) <= model.MAX_PER_GROUP
+        held = [positions.get(k, 0.0) for k in names]
+        assert held == sorted(held)  # least-held first
+        full = {g for g, c in pd.Series([groups[k] for k in names]).value_counts().items() if c >= 3}
+        rest = [positions.get(k, 0.0) for k in gate.index[gate] if k not in names and groups[k] not in full]
+        if len(names) == 10 and rest:
+            assert max(held) <= min(rest)
+        bought += len(names)
+        by_exec = [x["ticker"] for x in res["trades"] if x["date"] == ctx["exec"][t] and x["side"] == "buy"]
+        assert by_exec == names
+    assert bought > 0
+
+
+def test_v2_exit_needs_two_consecutive_month_ends_below_band():
+    closes, spy, groups = _closes()
+    ctx = _ctx(closes, spy, groups)
+    ms = ctx["months"]
+    first = bt.simulate(ctx, {}, "2016-01", ms[5].strftime("%Y-%m"), "v2")["trades"]
+    k = next(x["ticker"] for x in first if x["side"] == "buy")
+    for t in ms:  # k never below the band ... except at month 7, then at months 9 and 10
+        for key in ("var", "var_prev"):
+            ctx[key][t] = ctx[key][t].copy()
+            ctx[key][t].loc[:, "v2_below"] = False
+    for j in (7, 9, 10):
+        ctx["var"][ms[j]].loc[k, "v2_below"] = True
+        ctx["var_prev"][ms[j + 1]].loc[k, "v2_below"] = True
+    trades = bt.simulate(ctx, {}, "2016-01", ms[12].strftime("%Y-%m"), "v2")["trades"]
+    sells = [x for x in trades if x["side"] == "sell" and x["ticker"] == k and x["rule"] != "-35% stop"]
+    assert [x["date"] for x in sells] == [ctx["exec"][ms[10]]]  # month 7 alone does not sell; 9 + 10 does
+
+
+@pytest.mark.parametrize("pick", ["v1", "v2", "v3"])
+def test_variant_picks_have_no_lookahead(pick):
+    closes, spy, groups = _closes()
+    ctx = _ctx(closes, spy, groups)
+    t = ctx["months"][8]
+    mutated = closes.copy()
+    after = mutated.index > t
+    mutated.loc[after] *= np.random.default_rng(5).uniform(0.3, 3.0, size=(after.sum(), closes.shape[1]))
+    ctx2 = _ctx(mutated, spy, groups)
+    pd.testing.assert_frame_equal(ctx["var"][t], ctx2["var"][t])
+    d, end = ctx["exec"][t], t.strftime("%Y-%m")
+    buys = lambda r: [x["ticker"] for x in r["trades"] if x["date"] == d and x["side"] == "buy"]  # noqa: E731
+    a, b = bt.simulate(ctx, {}, "2016-01", end, pick), bt.simulate(ctx2, {}, "2016-01", end, pick)
+    assert buys(a) and buys(a) == buys(b)
+
+
+def test_random_up_draws_from_uptrend_pool():
+    closes, spy, groups = _closes()
+    ctx = _ctx(closes, spy, groups)
+    led = bt.simulate(ctx, {}, "2016-01", "2017-06", "v3")["ledger"]
+    n_path = dict(zip(led["date"], led["n_buys"]))
+    rnd = bt.simulate(ctx, {"weights": "W1"}, "2016-01", "2017-06", "random_up", np.random.default_rng(1), n_path=n_path)
+    for t in bt._months(ctx, "2016-01", "2017-06"):
+        got = [x["ticker"] for x in rnd["trades"] if x["date"] == ctx["exec"][t] and x["side"] == "buy"]
+        assert set(got) <= set(bt.uptrend(bt.scored_at(ctx, t, "W1")))
+    assert (rnd["ledger"]["n_buys"] <= led["n_buys"]).all()
+
+
+def test_h2_h1r_phases_and_report_on_synthetic(monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+    from lab import run
+    closes, spy, groups = _closes()
+    bench = pd.DataFrame({"SPY": spy, "QQQ": spy * 1.1, "SMH": spy * 0.9})
+    ctx = bt.build_ctx(closes, spy, groups, start="2016-01", end="2026-08", bench=bench)
+    ctx |= {"tickers": list(closes.columns), "members": None}
+    monkeypatch.setattr(run, "load_ctx", lambda *a, **k: ctx)
+    for k, v in {"RESULTS": tmp_path, "LAB": tmp_path, "PIT": tmp_path, "N_RANDOM": 8, "H1": ("2016-01", "2017-09"),
+                 "H2_IS": ("2016-01", "2016-09"), "H2_OOS": ("2016-10", "2017-09"), "FULL": ("2016-01", "2017-09"),
+                 "VARS": ("V3",)}.items():
+        monkeypatch.setattr(run, k, v)
+    (tmp_path / "DECISIONS.md").write_text("")
+    args = SimpleNamespace(force=False, smoke=False)
+    run.phase_h2(args)
+    h2 = json.loads((tmp_path / "h2.json").read_text())
+    assert [r["name"] for r in h2["is"]] == ["V3", run.B0R, run.EWN] and h2["selected"] == "V3"
+    assert [r["name"] for r in h2["oos"]][:3] == ["V3", run.B0R, run.EWN] and "random" in h2
+    assert set(h2["gates"]) == {"beats_b0r_is", "beats_b0r_oos", "ge_ew_pit_oos", "sp500_cogate", "ge_p60_random"}
+    assert h2["ship"] == ("V3" if all(h2["gates"].values()) else "B0R")
+    with pytest.raises(SystemExit):
+        run.phase_h2(args)  # write-once
+    run.phase_h1r(args)
+    rob = json.loads((tmp_path / "h1_robust.json").read_text())
+    assert set(run.ROBUST) | {f"{r}_stress" for r in run.ROBUST} <= set(rob)
+    assert [r["name"] for r in rob["ai_pit_ra"]["rows"]] == [run.RULE, run.EWN, "DCA SMH", "DCA QQQ"]
+    run.phase_report(args)
+    md = (tmp_path / "REPORT.md").read_text()
+    assert "## H2 variants (ADR-007)" in md and "Ship: " in md and "## H1 robustness (context only)" in md
+
+
+def test_robustness_universe_rule_recomputes_eligible_text():
+    from research.pit_universe import build
+
+    def sc(cik, sic, words, **hits):
+        return {"cik": str(cik), "acc": "a", "filed": "2014-03-01", "sic_filing": sic, "in_group": "1",
+                "eligible_text": "0", "words": str(words),
+                **{f"hits_{g}": str(hits.get(g, 0)) for g in ("compute", "ai", "network", "power", "cooling")}}
+    scores = [sc(1, "3674", 10000, ai=3), sc(2, "3674", 10000, compute=2, network=3), sc(3, "4911", 10000, power=2),
+              sc(4, "4911", 10000, compute=9), sc(5, "7372", 10000, cooling=1, ai=1)]
+    ciks = lambda rule: [r["cik"] for r in build.eligible(scores, rule=rule)]  # noqa: E731
+    assert ciks(None) == []  # default: the frozen eligible_text column
+    assert ciks((2.0, build.GROUPS)) == [1, 2, 3, 5]  # R-A: total >= 2; utilities: power >= 2 (CIK 4: power 0)
+    assert ciks((5.0, ["compute", "network"])) == [2, 4]  # R-B: compute + network >= 5, utilities included
+    assert ciks((5.0, build.GROUPS)) == [2, 3]  # the frozen rule (utility 3: power 2/10k)

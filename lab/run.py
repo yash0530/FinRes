@@ -37,6 +37,8 @@ N_RANDOM = 1000
 PIT = LAB.parent / "research" / "pit_universe"
 H1, REV_FLOOR, STRESS_PAD = ("2010-01", "2026-08"), 100e6, 280  # ADR-007
 RULE, EWN = "rule (ew_trend10)", "EW (ew_all)"
+H2_IS, H2_OOS, VARS, B0R = ("2010-01", "2017-12"), ("2018-01", "2026-08"), ("V1", "V2", "V3"), "B0R"  # ADR-007 H2
+ROBUST = ("ai_pit_ra", "ai_pit_rb")  # ADR-007a: R-A threshold 2; R-B compute + network groups only
 
 
 def name(cfg: dict) -> str:
@@ -144,8 +146,8 @@ def fund_panel(tickers, months) -> dict:
     return {m: {t: rows[t][i] for t in tickers} for i, m in enumerate(months)}
 
 
-def pit_rows() -> list[dict]:
-    with open(PIT / "universe.csv", newline="") as f:
+def pit_rows(tag: str = "") -> list[dict]:
+    with open(PIT / f"universe{tag}.csv", newline="") as f:
         return list(csv.DictReader(f))
 
 
@@ -179,8 +181,8 @@ def stress_closes(closes: pd.DataFrame, ctx: dict, rows: list[dict]) -> pd.DataF
 
 def load_ctx(label: str, tickers=None, start=FULL[0], end=FULL[1], cache=True) -> dict:
     path = DATA / f"ctx_{label}.pkl"
-    if cache and path.exists():
-        return pickle.loads(path.read_bytes())
+    if cache and path.exists() and "var" in (ctx := pickle.loads(path.read_bytes())):
+        return ctx  # a cache without the H2 variant signals is rebuilt
     t0 = time.time()
     conn = db.connect(LAB_DB)
     ai, groups = ai_universe()
@@ -188,8 +190,9 @@ def load_ctx(label: str, tickers=None, start=FULL[0], end=FULL[1], cache=True) -
     if label == "sp500":
         groups, members = sp_groups(), sp_members_fn()
         tickers = sp_union()
+    base = label.removesuffix("_stress")  # ai_pit[_ra|_rb][_stress]
     if label.startswith("ai_pit"):  # ADR-007: prices as C{cik}; members = eligible in year(t) and revenue floor at t
-        rows, by_year = pit_rows(), defaultdict(set)
+        rows, by_year = pit_rows(base[len("ai_pit"):]), defaultdict(set)
         groups = {f"C{r['cik']}": r["group"] for r in rows}
         for r in rows:
             by_year[int(r["year"])].add(f"C{r['cik']}")
@@ -197,8 +200,8 @@ def load_ctx(label: str, tickers=None, start=FULL[0], end=FULL[1], cache=True) -
         members = lambda t: mem[t]  # noqa: E731 - mem is computed below from the PIT fundamentals panel
     tickers = tickers or ai
     closes = prices.load_closes(conn, list(tickers))
-    if label == "ai_pit_stress":
-        closes = stress_closes(closes, load_ctx("ai_pit", start=start, end=end), rows)
+    if label.startswith("ai_pit") and label.endswith("_stress"):
+        closes = stress_closes(closes, load_ctx(base, start=start, end=end), rows)
     bench = prices.load_closes(conn, BENCH)
     months = [m for m in signals.month_ends(bench["SPY"].dropna().index) if start <= m.strftime("%Y-%m") <= end]
     panel = fund_panel(list(closes.columns), months)
@@ -402,6 +405,50 @@ def phase_h1(args) -> None:
     _write(path, out, True)
 
 
+def phase_h2(args) -> None:
+    """ADR-007 H2: V1-V3 in-sample on ai_pit; only the best IS variant (+ B0R) runs OOS, once; ALL gates or B0R ships."""
+    path = RESULTS / "h2.json"
+    if path.exists() and not args.force:
+        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    pit, t0 = load_ctx("ai_pit", start=H1[0], end=H1[1]), time.time()
+    sim = lambda ctx, p, per: bt.simulate(ctx, {}, *per, p)  # noqa: E731
+    table = lambda ctx, picks, per: (lambda ew: [row(n, sim(ctx, p, per), ew) for n, p in picks])(  # noqa: E731
+        sim(ctx, "ew_all", per)["ledger"])
+    is_rows = table(pit, [(v, v.lower()) for v in VARS] + [(B0R, "ew_trend10"), (EWN, "ew_all")], H2_IS)
+    best = max(is_rows[:len(VARS)], key=lambda r: r["xirr"])  # ties -> the first listed (V1 < V2 < V3)
+    v = best["name"]
+    oos = table(pit, [(v, v.lower()), (B0R, "ew_trend10"), (EWN, "ew_all")], H2_OOS)
+    oos += [row(f"DCA {k}", {"ledger": bt.dca(pit, k, *H2_OOS)}) for k in ("SMH", "QQQ")]
+    sp = table(load_ctx("sp500"), [(v, v.lower()), (EWN, "ew_all")], FULL)
+    x = lambda rows, n: next(r["xirr"] for r in rows if r["name"] == n)  # noqa: E731
+    gates = {"beats_b0r_is": x(is_rows, v) > x(is_rows, B0R), "beats_b0r_oos": x(oos, v) > x(oos, B0R),
+             "ge_ew_pit_oos": x(oos, v) >= x(oos, EWN), "sp500_cogate": x(sp, v) >= x(sp, EWN)}
+    out = {"is_period": H2_IS, "oos_period": H2_OOS, "is": is_rows, "selected": v, "oos": oos, "sp500": sp}
+    if v == "V3":  # same pool = the B0R uptrend names, same number of buys per month as V3
+        led = sim(pit, "v3", H2_OOS)["ledger"]
+        rand = bt.random_xirrs(pit, {"weights": "W1"}, *H2_OOS, dict(zip(led["date"], led["n_buys"])), N_RANDOM,
+                               seed=17, pick="random_up")
+        out["random"] = {"percentile": bt.percentile(x(oos, v), rand), "p60": float(np.percentile(rand, 60)),
+                         "median": float(np.median(rand))}
+        gates["ge_p60_random"] = x(oos, v) >= out["random"]["p60"]
+    out |= {"gates": gates, "ship": v if all(gates.values()) else B0R, "runtime_s": round(time.time() - t0, 1)}
+    print(json.dumps({k: out[k] for k in ("selected", "gates", "ship", "runtime_s")}, indent=1))
+    _write(path, out, True)
+
+
+def phase_h1r(args) -> None:
+    """ADR-007a robustness (reported only, never a selection): H1 on the R-A / R-B universes, priced and stressed."""
+    path = RESULTS / "h1_robust.json"
+    if path.exists() and not args.force:
+        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    out = {"period": H1, "note": "ADR-007a robustness: reported only, never used for selection"}
+    for label in [x for r in ROBUST for x in (r, f"{r}_stress")]:
+        ctx = load_ctx(label, start=H1[0], end=H1[1])
+        out[label] = h1_block(ctx) | {"names": len(ctx["tickers"])}
+        print(label, " | ".join(f"{r['name']} {r['xirr']:.1%}" for r in out[label]["rows"]))
+    _write(path, out, True)
+
+
 # ---------- report ----------
 
 def _p(x) -> str:
@@ -501,6 +548,36 @@ def phase_report(args) -> None:
                  f"{h1['ai_hand']['eligible_by_year'].get(k)} |" for k, v in h1["ai_pit"]["eligible_by_year"].items()],
                "", "### Coverage", *(cov.read_text().splitlines()[2:] if cov.exists() else []), "",
                "**Honesty (ADR-007).** " + re.search(r"\*\*Honesty \(fixed text for the report\)\.\*\* (.+)", adr)[1], ""]
+    h2 = load("h2.json")
+    if h2:
+        g, sel = h2["gates"], h2["selected"]
+        md += ["## H2 variants (ADR-007)", "V1 Faber monthly (month-end close vs 10-month SMA), V2 buffer (enter > SMA200 "
+               "× 1.02 with SMA50 > SMA200, exit 2 month-ends < SMA200 × 0.98), V3 FIP (uptrend → top third by 12-2 "
+               "momentum → lower half by ID). All use B0R's least-held rotation (10 names, ≤ 3/group) and the −35% stop. "
+               "PIT universe, priced names; months with < 40 eligible names are unscored (equal weight into all).", "",
+               f"### In-sample {h2['is_period'][0]}→{h2['is_period'][1]}", *_table(h2["is"]), "",
+               "Unscored months (< 40 eligible: buys = all eligible names, so only the exits differ): " + "; ".join(
+                   f"{p} " + ", ".join(f"{r['name']} {r['unscored_months']}/{r['months']}" for r in h2[p.lower()] if "DCA" not in r['name'])
+                   for p in ("IS", "OOS")) + ".", "",
+               f"**Best IS variant: {sel}.** Out-of-sample {h2['oos_period'][0]}→{h2['oos_period'][1]} (run once):",
+               *_table(h2["oos"]), "", f"### S&P 500 co-gate ({FULL[0]}→{FULL[1]})", *_table(h2["sp500"]), "",
+               *([f"Random portfolios (1,000, same uptrend pool): percentile {h2['random']['percentile']:.1f}, "
+                  f"60th {_p(h2['random']['p60'])}", ""] if "random" in h2 else []),
+               "### Gates", *[f"- {k}: {'yes' if v else 'no'}" for k, v in g.items()], f"- **Ship: {h2['ship']}**", ""]
+    rob = load("h1_robust.json")
+    if rob:
+        md += ["## H1 robustness (context only)", "ADR-007a: reported, never used for selection. R-A = same "
+               "dictionary, threshold ≥ 2 per 10k words; R-B = compute + network groups only, threshold ≥ 5. "
+               f"{rob['period'][0]}→{rob['period'][1]}.", "",
+               "| Universe | names | rule (ew_trend10) | EW | DCA SMH | DCA QQQ | rule − EW | unscored months |",
+               "|---|---|---|---|---|---|---|---|"]
+        for k in [x for r in ROBUST for x in (r, f"{r}_stress")]:
+            xs = {r["name"]: r for r in rob[k]["rows"]}
+            md.append(f"| {k} | {rob[k]['names']} | " + " | ".join(_p(xs[n]["xirr"]) for n in (RULE, EWN, "DCA SMH",
+                      "DCA QQQ")) + f" | {xs[RULE]['xirr'] - xs[EWN]['xirr']:+.1%} | {xs[RULE]['unscored_months']} |")
+        md += ["", "Eligible names per month-end (min / median / max):", "| Year | " + " | ".join(ROBUST) + " |",
+               "|---|---|---|", *[f"| {y} | {v} | {rob[ROBUST[1]]['eligible_by_year'].get(y)} |"
+                                  for y, v in rob[ROBUST[0]]["eligible_by_year"].items()], ""]
     md += ["## Bug-fix log", "",
            "- 2026-09-30 (ADR-004d): the $3 eligibility floor was applied to split-adjusted closes, which uses "
            "future splits (lookahead) and wrongly excluded later winners (e.g. NVDA until ~2019). Floor removed; "
@@ -521,12 +598,12 @@ def phase_report(args) -> None:
 def main(argv=None) -> None:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m lab.run")
-    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "report"])
+    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "h2", "h1r", "report"])
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="is only: 60 AI tickers, 2015-2016, writes to /tmp")
     args = ap.parse_args(argv)
     {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "fidelity": phase_fidelity, "h1": phase_h1,
-     "report": phase_report}[
+     "h2": phase_h2, "h1r": phase_h1r, "report": phase_report}[
         args.phase](args)
 
 

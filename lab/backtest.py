@@ -2,6 +2,7 @@
 
 Timing: signals at month-end close t (rows <= t only); every trade fills at the close of the next trading day.
 """
+import math
 import os
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
@@ -17,7 +18,59 @@ MIN_SCORED = 40  # fewer eligible names -> unscored month (equal-weight into all
 MAX_N, BRAKE_N = 10, 2  # Nvar: at most 10 names; brake: top 2 only (ADR-004)
 CAP_POS, CAP_GROUP, CAP_SPEC_POS, CAP_SPEC_TOTAL, CAPS_FROM = 0.10, 0.30, 0.03, 0.10, 25_000
 SLIM = ["eligible", "composite", "trend", "earnings_yield", "speculative", "sma200", "above200", "close"]
-PICKS = ("rank", "random", "random_all", "ew_all", "ew_trend", "ew_trend10")
+VARIANTS = ("v1", "v2", "v3")  # ADR-007 H2: V1 Faber monthly, V2 buffer band, V3 FIP
+PICKS = ("rank", "random", "random_all", "random_up", "ew_all", "ew_trend", "ew_trend10") + VARIANTS
+S2_PICKS = ("ew_trend", "ew_trend10", "random_up") + VARIANTS  # the variants' own exits replace S2's trend leg
+BAND = 0.02  # V2: enter above SMA200 x 1.02, exit below SMA200 x 0.98
+
+
+# ---------- H2 variant signals (ADR-007) ----------
+
+def fip_id(window: pd.DataFrame) -> pd.Series:
+    """Frog-in-the-pan ID = sign(PRET) x (%neg - %pos) over the daily returns inside `window` (prices t-252 ... t-21).
+    PRET = last / first - 1. Zero-return days count in the denominator only. NaN without both endpoints."""
+    if len(window) < 2:
+        return pd.Series(np.nan, index=window.columns)
+    r = window.pct_change(fill_method=None).iloc[1:]
+    n, pret = r.count(), window.iloc[-1] / window.iloc[0] - 1
+    return (np.sign(pret) * ((r < 0).sum() - (r > 0).sum()) / n).where(pret.notna() & (n > 0))
+
+
+def variant_signals(closes: pd.DataFrame, monthly: pd.DataFrame, t, fac: pd.DataFrame) -> pd.DataFrame:
+    """Per-ticker H2 inputs at month-end t from rows <= t only. monthly = last close of each month (stale-limited).
+    v1: month-end close vs the mean of the last 10 month-ends (t included); v2: the +/-2% SMA200 band; v3: 12-2
+    momentum P(t-21)/P(t-252)-1 and FIP ID over t-252 ... t-21. *_level is the line (NaN -> the exit can't fire)."""
+    m = monthly.loc[:t].iloc[-10:]
+    sma10 = m.mean().where((len(m) == 10) & (m.count() == 10)).reindex(fac.index)
+    me = m.iloc[-1].reindex(fac.index) if len(m) else pd.Series(np.nan, index=fac.index)
+    tail = closes.loc[:t, fac.index].iloc[-signals.TAIL - 1:].ffill(limit=signals.STALE_ROWS - 1)
+    close, sma50, sma200 = fac["close"], fac["sma50"], fac["sma200"]
+    return pd.DataFrame({
+        "v1_level": sma10, "v1_up": (me > sma10).fillna(False), "v1_below": ~(me > sma10) & sma10.notna(),
+        "v2_level": sma200, "v2_up": ((close > (1 + BAND) * sma200) & (sma50 > sma200)).fillna(False),
+        "v2_below": (close < (1 - BAND) * sma200) & sma200.notna(),
+        "mom": fac["ret_12_1"], "fip": fip_id(tail.iloc[-253:-21] if len(tail) >= 253 else tail.iloc[:0])},
+        index=fac.index)
+
+
+def uptrend(scored: pd.DataFrame) -> pd.Index:
+    """The B0R pool: eligible, scored, in uptrend (close > SMA200 and SMA50 > SMA200)."""
+    return scored.index[scored["eligible"].astype(bool) & scored["composite"].notna() & scored["trend"].astype(bool)]
+
+
+def fip_pool(scored: pd.DataFrame, var: pd.DataFrame) -> list:
+    """V3: uptrend pool -> top third by 12-2 momentum (ceil) -> the lower half of those by FIP ID (ceil)."""
+    m = var["mom"].reindex(uptrend(scored)).dropna()
+    top = m.index[np.argsort(-m.to_numpy(), kind="stable")][:math.ceil(len(m) / 3)]
+    idv = var["fip"].reindex(top).dropna()
+    return list(idv.index[np.argsort(idv.to_numpy(), kind="stable")][:math.ceil(len(idv) / 2)])
+
+
+def variant_gate(pick: str, scored: pd.DataFrame, var: pd.DataFrame) -> pd.Series:
+    """Bool per scored row: the variant's buyable set (replaces B0R's `trend` in model.buy_list)."""
+    if pick == "v3":
+        return pd.Series(scored.index.isin(fip_pool(scored, var)), index=scored.index)
+    return var[f"{pick}_up"].reindex(scored.index).fillna(False).astype(bool)
 
 
 # ---------- precompute ----------
@@ -37,11 +90,15 @@ def build_ctx(closes: pd.DataFrame, spy: pd.Series, groups: dict, fund=None, mem
     months = [t for t in signals.month_ends(idx) if start <= t.strftime("%Y-%m") <= end and t < idx[-1]]
     ctx = {"months": months, "exec": {}, "fac": {}, "mark": {}, "px": {}, "reg": {}, "below_prev": {},
            "elig": {}, "groups": groups, "scored": {}, "bench": {}}
+    ctx |= {"var": {}, "var_prev": {}}
     prev_below: set = set()
+    monthly = closes.ffill(limit=signals.STALE_ROWS - 1).loc[signals.month_ends(idx)]
+    prev_var = pd.DataFrame(columns=["v1_below", "v2_below"], dtype=bool)
     before = signals.month_ends(idx[idx <= months[0]]) if months else []
     if len(before) > 1:  # below-200DMA set at the month-end before the first simulated month
         f0 = signals.factors_at(closes, before[-2])
         prev_below = set(f0.index[f0["sma200"].notna() & ~f0["above200"]])
+        prev_var = variant_signals(closes, monthly, before[-2], f0[f0["n_days"] > 0])
     for t in months:
         d = idx[idx.get_loc(t) + 1]
         fac = signals.factors_at(closes, t)
@@ -59,6 +116,8 @@ def build_ctx(closes: pd.DataFrame, spy: pd.Series, groups: dict, fund=None, mem
         ctx["elig"][t] = list(fac.index[fac["eligible"]])
         ctx["below_prev"][t] = prev_below
         prev_below = set(fac.index[fac["sma200"].notna() & ~fac["above200"]])
+        ctx["var"][t], ctx["var_prev"][t] = variant_signals(closes, monthly, t, fac), prev_var
+        prev_var = ctx["var"][t]
         if bench is not None:
             ctx["bench"][t] = bench.reindex(idx).ffill().loc[d].to_dict()
     return ctx
@@ -159,11 +218,16 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
         else:
             scored = scored_at(ctx, t, cfg.get("weights", "W1"))
         positions = {k: s * mark.get(k, px[k]) for k, s in shares.items()}
-        rule = {"ew_all": "S1", "ew_trend": "S2", "ew_trend10": "S2"}.get(pick, cfg.get("sell", "S1"))
+        rule = "S1" if pick == "ew_all" else "S2" if pick in S2_PICKS else cfg.get("sell", "S1")
         if unscored and rule == "S3":
             rule = "S2"  # no ranking in an unscored month; stop/trend rules still apply
         holdings = {k: {"cost": basis[k] / shares[k]} for k in shares}
-        sells = model.sell_list(scored, holdings, mark, ctx["below_prev"][t], {"sell": rule})
+        sell_scored, below_prev = scored, ctx["below_prev"][t]
+        if pick in ("v1", "v2"):  # same model.sell_list (-35% stop first); the trend leg = 2 month-ends below the line
+            var, prev = ctx["var"][t], ctx["var_prev"][t]
+            sell_scored = scored.assign(sma200=var[f"{pick}_level"], above200=~var[f"{pick}_below"].astype(bool))
+            below_prev = set(prev.index[prev[f"{pick}_below"].astype(bool)])
+        sells = model.sell_list(sell_scored, holdings, mark, below_prev, {"sell": rule})
         for s in sells:
             positions.pop(s["ticker"])
         n = None  # buy_list's budget only sizes its dicts; the names do not depend on it
@@ -173,12 +237,16 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
         elif pick == "ew_trend10":  # the app's shipped rule (ADR-005), same code path
             names = [b["ticker"] for b in model.buy_list(scored, positions, groups, {"buy": "B0R"}, False, CONTRIB)]
+        elif pick in VARIANTS:  # B0R's least-held rotation (<= 3/group, 10 names) over the variant's buyable set
+            gated = scored.assign(trend=variant_gate(pick, scored, ctx["var"][t]))
+            names = [b["ticker"] for b in model.buy_list(gated, positions, groups, {"buy": "B0R"}, False, CONTRIB)]
         elif pick == "rank":
             names = [b["ticker"] for b in buy_list(scored, positions, groups, cfg, reg["brake"], CONTRIB)]
         else:
             n = n_path[t]
-            pool = buy_pool(scored, positions, groups, cfg if pick == "random" else {**cfg, "gate": "G0"})
-            names = model.take_by_group(list(rng.permutation(pool.index.to_numpy())), groups, n) if n else []
+            pool = uptrend(scored) if pick == "random_up" else \
+                buy_pool(scored, positions, groups, cfg if pick == "random" else {**cfg, "gate": "G0"}).index
+            names = model.take_by_group(list(rng.permutation(pool.to_numpy())), groups, n) if n else []
         port, tr = model.step(port, [s["ticker"] for s in sells], names, px, CONTRIB, COST)
         why = {s["ticker"]: s["rule"] for s in sells}
         trades += [{"date": ctx["exec"][t], **x, "rule": why[x["ticker"]] if x["side"] == "sell" else pick} for x in tr]

@@ -231,6 +231,76 @@ H1, one run, no selection, 2010-01→2026-08: the shipped rule (B0R + S2, `ew_tr
 
 **Honesty (ADR-007).** The rule was chosen on data that overlaps 2019–2026. The PIT universe is a new *universe*, not new *time*. Vocabulary drifts ("big data" era, 2010–13), so the eligible counts for each year are reported, and years with fewer than 40 eligible names are unscored. The dictionary was written in 2026, so some hindsight remains in the choice of words. That is why it is frozen here before scoring, with a generic-tech robustness run.
 
+## H2 variants (ADR-007)
+V1 Faber monthly (month-end close vs 10-month SMA), V2 buffer (enter > SMA200 × 1.02 with SMA50 > SMA200, exit 2 month-ends < SMA200 × 0.98), V3 FIP (uptrend → top third by 12-2 momentum → lower half by ID). All use B0R's least-held rotation (10 names, ≤ 3/group) and the −35% stop. PIT universe, priced names; months with < 40 eligible names are unscored (equal weight into all).
+
+### In-sample 2010-01→2017-12
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| V1 | 21.5% | 7.9% | 33.2% | -54.3% | 0.38 | 0.44 | -3.50 |
+| V2 | 20.8% | 7.2% | 32.8% | -54.3% | 0.37 | 0.38 | -3.15 |
+| V3 | 22.1% | 8.3% | 33.2% | -53.7% | 0.40 | 0.41 | -3.17 |
+| B0R | 22.1% | 8.3% | 33.2% | -53.7% | 0.40 | 0.41 | -3.17 |
+| EW (ew_all) | 35.8% | 20.7% | 33.8% | -49.8% | 0.72 | 0.04 | nan |
+
+Unscored months (< 40 eligible: buys = all eligible names, so only the exits differ): IS V1 96/96, V2 96/96, V3 96/96, B0R 96/96, EW (ew_all) 96/96; OOS V3 57/104, B0R 57/104, EW (ew_all) 57/104.
+
+**Best IS variant: V3.** Out-of-sample 2018-01→2026-08 (run once):
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| V3 | 28.4% | 26.9% | 28.8% | -37.5% | 0.97 | 0.23 | 0.02 |
+| B0R | 27.5% | 26.5% | 27.4% | -33.1% | 0.99 | 0.21 | -0.16 |
+| EW (ew_all) | 28.9% | 26.7% | 29.2% | -35.7% | 0.96 | 0.04 | nan |
+| DCA SMH | 38.0% | 32.3% | 32.1% | -39.6% | 1.04 | 0.00 | nan |
+| DCA QQQ | 20.4% | 19.0% | 21.4% | -33.7% | 0.92 | 0.00 | nan |
+
+### S&P 500 co-gate (2013-01→2026-08)
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| V3 | 12.4% | 12.6% | 15.0% | -25.2% | 0.87 | 0.15 | -1.36 |
+| EW (ew_all) | 15.3% | 15.0% | 15.7% | -28.2% | 0.97 | 0.03 | nan |
+
+Random portfolios (1,000, same uptrend pool): percentile 93.4, 60th 25.0%
+
+### Gates
+- beats_b0r_is: no
+- beats_b0r_oos: yes
+- ge_ew_pit_oos: no
+- sp500_cogate: no
+- ge_p60_random: yes
+- **Ship: B0R**
+
+## H1 robustness (context only)
+ADR-007a: reported, never used for selection. R-A = same dictionary, threshold ≥ 2 per 10k words; R-B = compute + network groups only, threshold ≥ 5. 2010-01→2026-08.
+
+| Universe | names | rule (ew_trend10) | EW | DCA SMH | DCA QQQ | rule − EW | unscored months |
+|---|---|---|---|---|---|---|---|
+| ai_pit_ra | 323 | 29.2% | 36.4% | 29.7% | 19.5% | -7.2% | 74 |
+| ai_pit_ra_stress | 616 | 29.4% | 31.1% | 29.7% | 19.5% | -1.7% | 26 |
+| ai_pit_rb | 77 | 28.9% | 44.1% | 29.7% | 19.5% | -15.2% | 200 |
+| ai_pit_rb_stress | 152 | 23.0% | 41.3% | 29.7% | 19.5% | -18.4% | 180 |
+
+Eligible names per month-end (min / median / max):
+| Year | ai_pit_ra | ai_pit_rb |
+|---|---|---|
+| 2010 | [0, 2, 5] | [0, 1, 2] |
+| 2011 | [9, 11, 12] | [2, 4, 4] |
+| 2012 | [14, 17, 20] | [5, 6, 8] |
+| 2013 | [18, 18, 18] | [8, 8, 8] |
+| 2014 | [27, 27, 28] | [14, 14, 14] |
+| 2015 | [31, 34, 34] | [13, 14, 14] |
+| 2016 | [39, 40, 43] | [24, 25, 25] |
+| 2017 | [47, 47, 47] | [22, 22, 22] |
+| 2018 | [51, 52, 54] | [17, 17, 17] |
+| 2019 | [55, 61, 63] | [16, 20, 20] |
+| 2020 | [68, 68, 69] | [21, 22, 22] |
+| 2021 | [79, 81, 81] | [24, 24, 24] |
+| 2022 | [88, 89, 90] | [29, 29, 30] |
+| 2023 | [108, 109, 109] | [29, 29, 30] |
+| 2024 | [124, 125, 128] | [31, 32, 32] |
+| 2025 | [195, 197, 198] | [35, 35, 35] |
+| 2026 | [220, 221, 222] | [38, 38, 38] |
+
 ## Bug-fix log
 
 - 2026-09-30 (ADR-004d): the $3 eligibility floor was applied to split-adjusted closes, which uses future splits (lookahead) and wrongly excluded later winners (e.g. NVDA until ~2019). Floor removed; sanity, IS, OOS, fidelity and H1 were all re-run. Pre-fix results remain in git history.
