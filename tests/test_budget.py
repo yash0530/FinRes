@@ -33,4 +33,4 @@ def test_lab_budget():
 
 
 def test_research_budget():
-    assert _count(_files("research", "*.py")) <= 450  # ADR-008
+    assert _count(_files("research", "*.py")) <= 650  # ADR-008, raised by the TL for ADR-010 (classify.py)
