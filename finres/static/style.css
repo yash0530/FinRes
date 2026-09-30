@@ -126,3 +126,12 @@ caption { text-align: left; font-size: .8rem; color: var(--muted); padding: .2re
 .htmx-indicator { opacity: 0; transition: opacity .2s; }
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
 footer { margin: 3rem auto 2rem; padding-top: .6rem; border-top: 1px solid var(--rule); }
+/* tabs + guide */
+.tabs { display: flex; gap: 4px; }
+.tabs a { padding: 3px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+.tabs a.on { background: var(--panel); color: var(--ink); border: 1px solid var(--rule); font-weight: 600; }
+.guide { max-width: 860px; line-height: 1.55; padding-top: 8px; padding-bottom: 48px; }
+.guide h1 { font-size: 1.5rem; } .guide h2 { margin-top: 1.8em; }
+.guide table { border-collapse: collapse; width: 100%; margin: 12px 0; display: block; overflow-x: auto; }
+.guide th, .guide td { border-bottom: 1px solid var(--rule); padding: 6px 8px; text-align: left; vertical-align: top; }
+.guide pre { overflow-x: auto; padding: 10px; border-radius: 6px; background: rgba(127,127,127,.1); }

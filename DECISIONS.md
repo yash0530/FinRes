@@ -265,3 +265,4 @@ Per ADR-004, **B0 ships**.
 - The app stays at **≤ 1,500 LOC**. The new features (the `model.step` refactor, shadow ledgers and "what changed") are paid for by deleting dead code: `prices.suspicious_moves`, `signals.above200_at`, and `score(rng_signal)` moves to the lab.
 - **`lab/` rises to ≤ 700 LOC.** New research code lives in **`research/` (≤ 450 LOC)**. Neither is ever imported by the app.
 - **6th SQLite table `shadow(strategy, month, state_json)`** holds the forward shadow portfolios. That is one table for one clear purpose. The README scope table is updated.
+- *Addendum (2026-09-29, Yash's request):* a **Guide** tab (`/guide`) renders `USER_GUIDE.md` inside the app, so the guide has a single source. It is documentation, not a second app page. It adds one dependency (`Markdown`) and about 6 lines of Python.

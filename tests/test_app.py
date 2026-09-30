@@ -400,3 +400,12 @@ def test_holdings_listed_without_prices(env, tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "_needs_refresh", lambda c: False)
     html = env["client"].get("/").text
     assert "NVDA" in html and "no price data" in html
+
+
+def test_guide_tab_renders_user_guide(env):
+    """The Guide tab renders USER_GUIDE.md; repo links point to GitHub; the app header links to it."""
+    client = env["client"]
+    r = client.get("/guide")
+    assert r.status_code == 200 and "<h2>The rules" in r.text and "<table>" in r.text
+    assert "https://github.com/yash0530/FinRes/blob/main/DECISIONS.md" in r.text
+    assert 'href="/guide"' in client.get("/").text

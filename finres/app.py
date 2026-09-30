@@ -8,6 +8,7 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
+import markdown
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +23,7 @@ REFRESHED = {"HX-Refresh": "true"}
 app = FastAPI(title="FinRes")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
+GITHUB = "https://github.com/yash0530/FinRes/blob/main"
 
 
 def _fmt(spec: str):
@@ -138,6 +140,13 @@ def index(request: Request):
             start_refresh()
         s = state.build(conn, config.ASOF)
     return _render(request, "index.html", s=s, p=progress)
+
+
+@app.get("/guide", response_class=HTMLResponse)
+def guide(request: Request):
+    """The user guide tab, rendered from USER_GUIDE.md (single source of truth). Repo links go to GitHub."""
+    text = re.sub(r"\]\((?!https?:)([^)]+)\)", rf"]({GITHUB}/\1)", (config.ROOT / "USER_GUIDE.md").read_text())
+    return _render(request, "guide.html", body=markdown.markdown(text, extensions=["tables", "fenced_code"]))
 
 
 @app.post("/refresh", response_class=HTMLResponse)
