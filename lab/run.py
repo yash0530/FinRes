@@ -23,6 +23,7 @@ from lab import backtest as bt
 LAB = Path(__file__).resolve().parent
 DATA, RESULTS = LAB / "data", LAB / "results"
 LAB_DB = DATA / "lab.db"
+DATA.mkdir(exist_ok=True)  # git-ignored: a fresh clone doesn't have it
 HISTORY = LAB / "sp500_history.csv"
 HISTORY_SRC = ("https://raw.githubusercontent.com/fja05680/sp500/master/"
                "S%26P%20500%20Historical%20Components%20%26%20Changes%20(Updated).csv")
