@@ -305,6 +305,42 @@ Eligible names per month-end (min / median / max):
 | 2025 | [194, 196, 197] | [35, 35, 35] |
 | 2026 | [220, 221, 222] | [38, 38, 38] |
 
+## ADR-011: B0H vs B0R
+B0H buys exactly like B0R (10 uptrend names/month, least-held first, ≤ 3 per group) and sells only on the −35% stop. Pre-registered: B0H replaces B0R only if, on every set, its XIRR ≥ B0R's and its max drawdown is no more than 10 pts worse.
+
+| Set | Period | B0R XIRR | B0H XIRR | B0R maxDD | B0H maxDD | EW hold | SMH DCA | Gate |
+|---|---|---|---|---|---|---|---|---|
+| ai | 2019-01→2026-08 | 40.0% | 36.6% | -33.6% | -33.3% | 36.9% | 39.9% | FAIL |
+| ai_pit | 2010-01→2026-08 | 26.6% | 44.8% | -56.6% | -55.7% | 44.2% | 29.7% | pass |
+| ai_pit_stress | 2010-01→2026-08 | 25.6% | 41.7% | -54.8% | -54.1% | 41.2% | 29.7% | pass |
+| ai_pit_ra | 2010-01→2026-08 | 29.5% | 32.7% | -38.2% | -46.0% | 36.5% | 29.7% | pass |
+| sp500 | 2013-01→2026-08 | 12.5% | 13.9% | -24.4% | -27.6% | 15.3% | 32.6% | pass |
+
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| ai · B0R | 40.0% | 39.8% | 38.2% | -33.6% | 1.07 | 0.16 | 1.29 |
+| ai · B0H | 36.6% | 35.2% | 31.8% | -33.3% | 1.11 | 0.05 | -0.36 |
+| ai · EW (ew_all) | 36.9% | 35.5% | 32.5% | -32.6% | 1.10 | 0.05 | nan |
+| ai · DCA SMH | 39.9% | 38.4% | 33.0% | -39.6% | 1.16 | 0.00 | 0.43 |
+| ai_pit · B0R | 26.6% | 18.8% | 32.8% | -56.6% | 0.68 | 0.25 | -2.12 |
+| ai_pit · B0H | 44.8% | 36.3% | 39.4% | -55.7% | 0.98 | 0.03 | 1.05 |
+| ai_pit · EW (ew_all) | 44.2% | 34.8% | 39.5% | -55.5% | 0.95 | 0.02 | nan |
+| ai_pit · DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.37 |
+| ai_pit_stress · B0R | 25.6% | 18.7% | 32.5% | -54.8% | 0.68 | 0.21 | -2.00 |
+| ai_pit_stress · B0H | 41.7% | 33.9% | 37.8% | -54.1% | 0.96 | 0.03 | 1.42 |
+| ai_pit_stress · EW (ew_all) | 41.2% | 32.5% | 37.9% | -53.9% | 0.93 | 0.02 | nan |
+| ai_pit_stress · DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.11 |
+| ai_pit_ra · B0R | 29.5% | 26.3% | 31.7% | -38.2% | 0.89 | 0.17 | -0.93 |
+| ai_pit_ra · B0H | 32.7% | 29.5% | 28.6% | -46.0% | 1.05 | 0.02 | -2.01 |
+| ai_pit_ra · EW (ew_all) | 36.5% | 32.4% | 30.8% | -49.7% | 1.07 | 0.02 | nan |
+| ai_pit_ra · DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.17 |
+| sp500 · B0R | 12.5% | 12.8% | 14.9% | -24.4% | 0.89 | 0.14 | -1.16 |
+| sp500 · B0H | 13.9% | 13.5% | 15.3% | -27.6% | 0.91 | 0.03 | -2.40 |
+| sp500 · EW (ew_all) | 15.3% | 15.0% | 15.7% | -28.2% | 0.97 | 0.03 | nan |
+| sp500 · DCA SMH | 32.6% | 30.2% | 27.5% | -39.6% | 1.10 | 0.00 | 3.30 |
+
+**Decision: B0R stays.** B0H runs as a forward shadow portfolio either way.
+
 ## Bug-fix log
 
 - 2026-09-30 (ADR-009a, review #2): F1: in unscored months (< 40 eligible) the simulator sold S2 trend failures and re-bought them at the same fill (equal weight into all eligible): 748 of 950 H1 rule sells were same-month re-buys. A name sold in a month is now never bought that month. F2: `listed` (Yahoo-priced) only via the CIK's current SEC ticker; index words (CRSP, NASDAQ, …) are no longer read as symbols. 8 PIT CIKs lost their Yahoo series and are now stress-test names: 6 carried another company's prices (Cray and Zix = CRISPR, Rockley = Worthington Steel, Lyris = NOV, CoreSite = Cencora, SGI = Somnigroup), ANSYS and the pre-2021 Marvell CIK have no current SEC ticker; Alphabet (GOOGL) and Rigetti (RGTI, not its warrant) were re-priced. H1, H1 robustness and H2 were re-run. The hand-picked IS/OOS/fidelity/sanity runs have 0 unscored months and were not re-run.

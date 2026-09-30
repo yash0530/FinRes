@@ -2,10 +2,8 @@
 
 Timing: signals at month-end close t (rows <= t only); every trade fills at the close of the next trading day.
 """
-import math
-import os
+import math, multiprocessing as mp, os  # noqa: E401
 from concurrent.futures import ProcessPoolExecutor
-import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
@@ -19,8 +17,8 @@ MAX_N, BRAKE_N = 10, 2  # Nvar: at most 10 names; brake: top 2 only (ADR-004)
 CAP_POS, CAP_GROUP, CAP_SPEC_POS, CAP_SPEC_TOTAL, CAPS_FROM = 0.10, 0.30, 0.03, 0.10, 25_000
 SLIM = ["eligible", "composite", "trend", "earnings_yield", "speculative", "sma200", "above200", "close"]
 VARIANTS = ("v1", "v2", "v3")  # ADR-007 H2: V1 Faber monthly, V2 buffer band, V3 FIP
-PICKS = ("rank", "random", "random_all", "random_up", "ew_all", "ew_trend", "ew_trend10") + VARIANTS
-S2_PICKS = ("ew_trend", "ew_trend10", "random_up") + VARIANTS  # the variants' own exits replace S2's trend leg
+PICKS = ("rank", "random", "random_all", "random_up", "ew_all", "ew_trend", "ew_trend10", "b0h") + VARIANTS
+S2_PICKS = ("ew_trend", "ew_trend10", "b0h", "random_up") + VARIANTS  # variants' own exits replace S2's trend leg
 BAND = 0.02  # V2: enter above SMA200 x 1.02, exit below SMA200 x 0.98
 
 
@@ -228,6 +226,7 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             sell_scored = scored.assign(sma200=var[f"{pick}_level"], above200=~var[f"{pick}_below"].astype(bool))
             below_prev = set(prev.index[prev[f"{pick}_below"].astype(bool)])
         sells = model.sell_list(sell_scored, holdings, mark, below_prev, {"sell": rule})
+        sells = [s for s in sells if s["rule"] == "-35% stop"] if pick == "b0h" else sells  # ADR-011: stop only
         for s in sells:
             positions.pop(s["ticker"])
         n = None  # buy_list's budget only sizes its dicts; the names do not depend on it
@@ -235,7 +234,7 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             names = [k for k in el if k not in {s["ticker"] for s in sells}]
         elif pick == "ew_trend":
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
-        elif pick == "ew_trend10":  # the app's shipped rule (ADR-005), same code path
+        elif pick in ("ew_trend10", "b0h"):  # the app's shipped rule (ADR-005), same code path; B0H = same buys
             names = [b["ticker"] for b in model.buy_list(scored, positions, groups, {"buy": "B0R"}, False, CONTRIB)]
         elif pick in VARIANTS:  # B0R's least-held rotation (<= 3/group, 10 names) over the variant's buyable set
             gated = scored.assign(trend=variant_gate(pick, scored, ctx["var"][t]))

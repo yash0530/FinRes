@@ -15,7 +15,8 @@ UPTREND, NO_UPTREND = "UPTREND", "NO UPTREND"  # ADR-005 labels; model.score's B
 SNAP_KEYS = ["composite", "grade_mom", "grade_qual", "grade_rev", "grade_composite", "label", "mom", "qual",
              "rev", "rev_chg", "rev_breadth", "trend", "close"]
 SHADOW_START = "2026-09"  # ADR-008: forward shadow ledgers start at month-end 2026-09-30 (no hindsight)
-SHADOWS = {"rule": "Shipped rule (B0R · S2)", "ew": "Equal-weight universe", "smh": "SMH DCA"}
+SHADOWS = {"rule": "Shipped rule (B0R · S2)", "hold": "Buy uptrend, hold (B0H)", "ew": "Equal-weight universe",
+           "smh": "SMH DCA"}  # ADR-011: hold = B0R buys, only the -35% stop sells
 SHADOW_COST = 0.0015  # lab.backtest.COST (15 bps per side); SMH DCA pays none, as in lab `dca`
 _fund_cache: dict[tuple[str, str], dict | None] = {}  # (ticker, asof) -> edgar.fundamentals output
 _est_cache: dict[tuple[str, str], dict] = {}  # (ticker, day) -> estimates.snapshot for out-of-universe analyze
@@ -230,7 +231,8 @@ def step_shadows(conn, ref: date | None = None) -> int:
         for x in todo:
             sh, basis = (p := replay(conn, x, closes)[0])["shares"], p["basis"]
             hold = {k: {"cost": basis[k] / n} for k, n in sh.items()}
-            sells = [r["ticker"] for r in _sells(closes, sc, hold, mark, mes[:i + 1])] if x == "rule" else []
+            sells = [r["ticker"] for r in _sells(closes, sc, hold, mark, mes[:i + 1])
+                     if x == "rule" or r["rule"] == "-35% stop"] if x in ("rule", "hold") else []
             pos = {k: n * mark.get(k, 0.0) for k, n in sh.items() if k not in sells}
             buys = ["SMH"] if x == "smh" else list(sc.index[sc["eligible"].astype(bool)]) if x == "ew" else \
                 [b["ticker"] for b in model.buy_list(sc, pos, fr["u"]["ticker_group"], model.SHIPPED, False, BUDGET)]

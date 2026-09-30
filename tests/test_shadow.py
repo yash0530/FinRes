@@ -42,7 +42,7 @@ def _rows(conn):
 
 def test_two_month_ends_stored_per_strategy_and_idempotent(shadow_db):
     df = _prices(shadow_db, "2026-11-05")
-    assert state.step_shadows(shadow_db, ref=date(2026, 11, 10)) == 6
+    assert state.step_shadows(shadow_db, ref=date(2026, 11, 10)) == 2 * len(state.SHADOWS)
     rows = _rows(shadow_db)
     assert set(rows) == {(s, m) for s in state.SHADOWS for m in ("2026-09", "2026-10")}
     assert [rows[("smh", m)]["fill_date"] for m in ("2026-09", "2026-10")] == ["2026-10-01", "2026-11-02"]
@@ -61,7 +61,7 @@ def test_two_month_ends_stored_per_strategy_and_idempotent(shadow_db):
     assert state.step_shadows(shadow_db, ref=date(2026, 11, 10)) == 0
     assert _rows(shadow_db) == rows
     track = state._shadow_rows(shadow_db)
-    assert [(r["months"], r["invested"]) for r in track] == [(2, 5000.0)] * 3
+    assert [(r["months"], r["invested"]) for r in track] == [(2, 5000.0)] * len(state.SHADOWS)
     assert all(r["value"] > 0 for r in track)
 
 
@@ -70,7 +70,7 @@ def test_split_after_redownload_leaves_shadow_value_unchanged(shadow_db):
     Replaying the stored decisions at the new closes doubles the shares: value and XIRR unchanged (frozen share
     counts would have halved those positions)."""
     df = _prices(shadow_db, "2026-12-15")
-    assert state.step_shadows(shadow_db, ref=date(2026, 12, 16)) == 9
+    assert state.step_shadows(shadow_db, ref=date(2026, 12, 16)) == 3 * len(state.SHADOWS)
     before = state._shadow_rows(shadow_db)
     held = list(state.replay(shadow_db, "rule")[0]["shares"]) + ["SMH", "U00"]
     split = df.copy()
@@ -83,12 +83,32 @@ def test_split_after_redownload_leaves_shadow_value_unchanged(shadow_db):
 
 def test_month_without_fill_day_close_is_deferred(shadow_db):
     _prices(shadow_db, "2026-10-30")  # October's month-end is the last row: no fill day yet
-    assert state.step_shadows(shadow_db, ref=date(2026, 11, 2)) == 3
+    assert state.step_shadows(shadow_db, ref=date(2026, 11, 2)) == len(state.SHADOWS)
     assert {m for _, m in _rows(shadow_db)} == {"2026-09"}
     _prices(shadow_db, "2026-11-02")  # fill day arrives, but it is today (close may be partial): still deferred
     assert state.step_shadows(shadow_db, ref=date(2026, 11, 2)) == 0
-    assert state.step_shadows(shadow_db, ref=date(2026, 11, 3)) == 3
+    assert state.step_shadows(shadow_db, ref=date(2026, 11, 3)) == len(state.SHADOWS)
     assert {m for _, m in _rows(shadow_db)} == {"2026-09", "2026-10"}
+
+
+def test_hold_ledger_sells_only_on_the_stop(shadow_db):
+    """ADR-011: after a trend break (2 month-ends below the 200DMA, -30%) the rule ledger sells and the hold ledger
+    keeps the name; after a -50% drop (the -35% stop) both sell."""
+    idx = pd.bdate_range("2025-01-01", "2026-12-04")
+    df = pd.DataFrame({t: 40 * np.exp(0.002 * np.arange(len(idx))) for t in UNI_T + config.BENCHMARKS}, index=idx)
+    prices.store(shadow_db, df.loc[:"2026-10-02"])
+    assert state.step_shadows(shadow_db, ref=date(2026, 10, 5)) == len(state.SHADOWS)
+    a, b = _rows(shadow_db)[("hold", "2026-09")]["buys"][:2]
+    assert _rows(shadow_db)[("rule", "2026-09")]["buys"][:2] == [a, b]  # same buys as B0R
+    df.loc["2026-10-05":, a] *= 0.70  # below the 200DMA at the Oct and Nov month-ends, above the stop
+    df.loc["2026-10-05":, b] *= 0.50  # the -35% stop
+    prices.store(shadow_db, df)
+    state.step_shadows(shadow_db, ref=date(2026, 12, 10))
+    rows = _rows(shadow_db)
+    sold = lambda x: [(m, t) for (s, m), r in rows.items() if s == x for t in r["sells"]]  # noqa: E731
+    assert sold("hold") == [("2026-10", b)]
+    assert sorted(sold("rule")) == [("2026-10", b), ("2026-11", a)]
+    assert a in state.replay(shadow_db, "hold")[0]["shares"] and a not in state.replay(shadow_db, "rule")[0]["shares"]
 
 
 def test_nothing_before_inception(shadow_db):

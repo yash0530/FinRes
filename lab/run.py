@@ -1,14 +1,5 @@
 """Lab runner: python -m lab.run {data|sanity|is|oos|report} [--force] [--smoke]. Pre-registered in ADR-004/004a."""
-import bisect
-import csv
-import gzip
-import json
-import multiprocessing as mp
-import pickle
-import re
-import subprocess
-import sys
-import time
+import bisect, csv, gzip, json, multiprocessing as mp, pickle, re, subprocess, sys, time  # noqa: E401
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
@@ -40,6 +31,7 @@ H1, REV_FLOOR, STRESS_PAD = ("2010-01", "2026-08"), 100e6, 280  # ADR-007
 RULE, EWN = "rule (ew_trend10)", "EW (ew_all)"
 H2_IS, H2_OOS, VARS, B0R = ("2010-01", "2017-12"), ("2018-01", "2026-08"), ("V1", "V2", "V3"), "B0R"  # ADR-007 H2
 ROBUST = ("ai_pit_ra", "ai_pit_rb")  # ADR-007a: R-A threshold 2; R-B compute + network groups only
+H3 = {"ai": OOS, "ai_pit": H1, "ai_pit_stress": H1, "ai_pit_ra": H1, "sp500": FULL}  # ADR-011's five test sets
 
 
 def name(cfg: dict) -> str:
@@ -226,6 +218,12 @@ def row(label, res, bench=None) -> dict:
             if "unscored" in res["ledger"] else 0}
 
 
+def _fresh(f: str, args) -> Path:
+    if (p := RESULTS / f).exists() and not args.force:
+        sys.exit(f"{p} exists; refusing to overwrite without --force")
+    return p
+
+
 def _write(path: Path, obj, force: bool) -> None:
     if path.exists() and not force:
         sys.exit(f"{path} exists; refusing to overwrite without --force")
@@ -325,9 +323,7 @@ def phase_is(args) -> None:
 
 
 def phase_oos(args) -> None:
-    is_ = json.loads((RESULTS / "is.json").read_text())
-    if (RESULTS / "oos.json").exists() and not args.force:
-        sys.exit("lab/results/oos.json exists; refusing to overwrite without --force")
+    is_, _ = json.loads((RESULTS / "is.json").read_text()), _fresh("oos.json", args)
     cfg, (start, end) = is_["selected_cfg"], OOS
     ctx = load_ctx("ai")
     t0 = time.time()
@@ -384,9 +380,7 @@ def h1_block(ctx: dict, dca: bool = True) -> dict:
 
 def phase_h1(args) -> None:
     """ADR-007 H1: one run, no selection. Sanity on ai_pit first; the run does not count if it fails."""
-    path = RESULTS / "h1.json"
-    if path.exists() and not args.force:
-        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    path = _fresh("h1.json", args)
     pit = load_ctx("ai_pit", start=H1[0], end=H1[1])
     closes = prices.load_closes(db.connect(LAB_DB), pit["tickers"])
     first = next(t for t in pit["months"] if len(pit["elig"][t]) >= 10).strftime("%Y-%m")  # early months ~empty
@@ -408,9 +402,7 @@ def phase_h1(args) -> None:
 
 def phase_h2(args) -> None:
     """ADR-007 H2: V1-V3 in-sample on ai_pit; only the best IS variant (+ B0R) runs OOS, once; ALL gates or B0R ships."""
-    path = RESULTS / "h2.json"
-    if path.exists() and not args.force:
-        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    path = _fresh("h2.json", args)
     pit, t0 = load_ctx("ai_pit", start=H1[0], end=H1[1]), time.time()
     sim = lambda ctx, p, per: bt.simulate(ctx, {}, *per, p)  # noqa: E731
     table = lambda ctx, picks, per: (lambda ew: [row(n, sim(ctx, p, per), ew) for n, p in picks])(  # noqa: E731
@@ -439,14 +431,28 @@ def phase_h2(args) -> None:
 
 def phase_h1r(args) -> None:
     """ADR-007a robustness (reported only, never a selection): H1 on the R-A / R-B universes, priced and stressed."""
-    path = RESULTS / "h1_robust.json"
-    if path.exists() and not args.force:
-        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    path = _fresh("h1_robust.json", args)
     out = {"period": H1, "note": "ADR-007a robustness: reported only, never used for selection"}
     for label in [x for r in ROBUST for x in (r, f"{r}_stress")]:
         ctx = load_ctx(label, start=H1[0], end=H1[1])
         out[label] = h1_block(ctx) | {"names": len(ctx["tickers"])}
         print(label, " | ".join(f"{r['name']} {r['xirr']:.1%}" for r in out[label]["rows"]))
+    _write(path, out, True)
+
+
+def phase_h3(args) -> None:
+    """ADR-011: B0H (B0R buys, -35% stop only) replaces B0R iff on EVERY set XIRR >= B0R's and maxDD <= 10 pts worse."""
+    path, out = _fresh("h3.json", args), {"sets": {}}
+    for label, per in H3.items():
+        ctx = load_ctx(label, start=min(per[0], FULL[0]), end=per[1])  # the cached contexts' ranges
+        ew = bt.simulate(ctx, {}, *per, "ew_all")["ledger"]
+        rows = [row(n, bt.simulate(ctx, {}, *per, p), ew) for n, p in ((B0R, "ew_trend10"), ("B0H", "b0h"))]
+        rows += [row(EWN, {"ledger": ew}, ew), row("DCA SMH", {"ledger": bt.dca(ctx, "SMH", *per)}, ew)]
+        ok = {"xirr_ge": rows[1]["xirr"] >= rows[0]["xirr"], "maxdd_ok": rows[1]["maxdd"] >= rows[0]["maxdd"] - 0.10}
+        out["sets"][label] = {"period": per, "rows": rows, **ok, "pass": all(ok.values())}
+        print(label, " | ".join(f"{x['name']} {x['xirr']:.1%} dd {x['maxdd']:.1%}" for x in rows), "->", ok)
+    out |= {"switch": (sw := all(v["pass"] for v in out["sets"].values())), "ship": "B0H" if sw else B0R}
+    print("switch:", out["switch"], "ship:", out["ship"])
     _write(path, out, True)
 
 
@@ -501,9 +507,6 @@ def phase_report(args) -> None:
         md += ["## Eligible names per year (min / median / max)", "| Year | AI | S&P 500 |", "|---|---|---|",
                *[f"| {y} | {v} | {oos['sp500_eligible_by_year'].get(y)} |" for y, v in oos["eligible_by_year"].items()],
                ""]
-    elif is_:
-        md += ["## Eligible names per year, IS (min / median / max)",
-               *[f"- {y}: {v}" for y, v in is_["eligible_by_year"].items()], ""]
     fid = RESULTS / "fidelity.json"
     if fid.exists():
         f = json.loads(fid.read_text())
@@ -587,6 +590,18 @@ def phase_report(args) -> None:
         md += ["", "Eligible names per month-end (min / median / max):", "| Year | " + " | ".join(ROBUST) + " |",
                "|---|---|---|", *[f"| {y} | {v} | {rob[ROBUST[1]]['eligible_by_year'].get(y)} |"
                                   for y, v in rob[ROBUST[0]]["eligible_by_year"].items()], ""]
+    h3 = load("h3.json")
+    if h3:
+        cols = ((0, "xirr"), (1, "xirr"), (0, "maxdd"), (1, "maxdd"), (2, "xirr"), (3, "xirr"))
+        md += ["## ADR-011: B0H vs B0R", "B0H buys exactly like B0R (10 uptrend names/month, least-held first, ≤ 3 per "
+               "group) and sells only on the −35% stop. Pre-registered: B0H replaces B0R only if, on every set, its XIRR "
+               "≥ B0R's and its max drawdown is no more than 10 pts worse.", "",
+               "| Set | Period | B0R XIRR | B0H XIRR | B0R maxDD | B0H maxDD | EW hold | SMH DCA | Gate |", "|---" * 9 + "|",
+               *[f"| {k} | {s['period'][0]}→{s['period'][1]} | " + " | ".join(_p(s["rows"][i][m]) for i, m in cols) +
+                 f" | {'pass' if s['pass'] else 'FAIL'} |" for k, s in h3["sets"].items()], "",
+               *_table([{**r, "name": f"{k} · {r['name']}"} for k, s in h3["sets"].items() for r in s["rows"]]), "",
+               f"**Decision: {'switch to B0H' if h3['switch'] else 'B0R stays'}.** B0H runs as a forward shadow "
+               "portfolio either way.", ""]
     md += ["## Bug-fix log", "",
            "- 2026-09-30 (ADR-009a, review #2): F1: in unscored months (< 40 eligible) the simulator sold S2 trend "
            "failures and re-bought them at the same fill (equal weight into all eligible): 748 of 950 H1 rule sells were "
@@ -616,13 +631,11 @@ def phase_report(args) -> None:
 def main(argv=None) -> None:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m lab.run")
-    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "h2", "h1r", "report"])
+    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "h2", "h1r", "h3", "report"])
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="is only: 60 AI tickers, 2015-2016, writes to /tmp")
     args = ap.parse_args(argv)
-    {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "fidelity": phase_fidelity, "h1": phase_h1,
-     "h2": phase_h2, "h1r": phase_h1r, "report": phase_report}[
-        args.phase](args)
+    globals()[f"phase_{args.phase}"](args)
 
 
 if __name__ == "__main__":

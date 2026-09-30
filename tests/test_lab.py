@@ -115,7 +115,7 @@ def test_unscored_month_goes_equal_weight():
     assert (led["n_buys"] <= led["eligible"]).all()
 
 
-@pytest.mark.parametrize("pick", ["rank", "ew_trend10", "v1"])
+@pytest.mark.parametrize("pick", ["rank", "ew_trend10", "b0h", "v1"])
 def test_m10_unscored_month_never_rebuys_a_name_sold_that_month(pick):
     """F1 (ADR-009a): T00 falls below its 200DMA -> S2 sells it; it is not re-bought that month, and is bought again
     in every later month where it is eligible and not being sold."""
@@ -134,6 +134,50 @@ def test_m10_unscored_month_never_rebuys_a_name_sold_that_month(pick):
     for t in bt._months(ctx, "2016-01", "2026-08"):
         v = side.get(ctx["exec"][t], {"sell": set(), "buy": set()})
         assert ("T00" in v["buy"]) == ("T00" in ctx["elig"][t] and "T00" not in v["sell"])
+
+
+def test_b0h_buys_like_b0r_and_sells_only_on_the_stop():
+    """ADR-011: B0H = ew_trend10's buys; its only exit is the -35% stop (never the 2-month-end trend break)."""
+    closes, spy, groups = _closes(n=60)
+    closes["T59"] = np.r_[np.linspace(40, 90, 450), np.full(250, 70.0)]  # -22%: breaks the trend, not the stop
+    closes["T58"] = np.r_[np.linspace(40, 90, 450), np.full(250, 30.0)]  # -67%: the stop
+    ctx = _ctx(closes, spy, groups)
+    r0, h = (bt.simulate(ctx, {}, "2016-01", "2026-08", p) for p in ("ew_trend10", "b0h"))
+    assert not h["ledger"]["unscored"].all()
+    first = lambda res: sorted(x["ticker"] for x in res["trades"] if x["date"] == res["trades"][0]["date"])  # noqa
+    assert first(h) == first(r0)
+    rules = lambda res: {x["rule"] for x in res["trades"] if x["side"] == "sell"}  # noqa: E731
+    assert "2 month-ends below 200DMA" in rules(r0) and rules(h) == {"-35% stop"}
+    sold = lambda res, t: any(x["ticker"] == t and x["side"] == "sell" for x in res["trades"])  # noqa: E731
+    assert sold(h, "T58") and not sold(h, "T59") and sold(r0, "T59")
+
+
+def test_h3_phase_and_report_on_synthetic(monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+    from lab import run
+    closes, spy, groups = _closes()
+    bench = pd.DataFrame({"SPY": spy, "QQQ": spy * 1.1, "SMH": spy * 0.9})
+    ctx = bt.build_ctx(closes, spy, groups, start="2016-01", end="2026-08", bench=bench)
+    monkeypatch.setattr(run, "load_ctx", lambda *a, **k: ctx)
+    monkeypatch.setattr(run, "H3", {k: ("2016-01", "2017-09") for k in run.H3})
+    for k in ("RESULTS", "LAB", "PIT"):
+        monkeypatch.setattr(run, k, tmp_path)
+    (tmp_path / "DECISIONS.md").write_text("")
+    args = SimpleNamespace(force=False, smoke=False)
+    run.phase_h3(args)
+    h3 = json.loads((tmp_path / "h3.json").read_text())
+    assert list(h3["sets"]) == ["ai", "ai_pit", "ai_pit_stress", "ai_pit_ra", "sp500"]
+    for v in h3["sets"].values():
+        b0r, b0h = v["rows"][0], v["rows"][1]
+        assert [r["name"] for r in v["rows"]] == [run.B0R, "B0H", run.EWN, "DCA SMH"]
+        assert v["pass"] == (b0h["xirr"] >= b0r["xirr"] and b0h["maxdd"] >= b0r["maxdd"] - 0.10)
+    assert h3["switch"] == all(v["pass"] for v in h3["sets"].values())
+    assert h3["ship"] == ("B0H" if h3["switch"] else "B0R")
+    with pytest.raises(SystemExit):
+        run.phase_h3(args)  # write-once
+    run.phase_report(args)
+    assert "## ADR-011: B0H vs B0R" in (tmp_path / "REPORT.md").read_text()
 
 
 def test_random_xirrs_reproducible_across_workers():
