@@ -1,10 +1,12 @@
-"""M7 proof pack: drive the REAL app (real data, real Qwen) through every user flow, assert, screenshot.
+"""M7/M9 proof pack: drive the REAL app (real data, real Qwen) through every user flow, assert, screenshot.
 
     .venv/bin/python -m e2e.flows [--only 2,3,9]
 
-Servers run on 127.0.0.1:8601-8609 against /tmp/finres_proof*.db copies (data/finres.db is only ever read, via
+Servers run on 127.0.0.1:8601-8612 against /tmp/finres_proof*.db copies (data/finres.db is only ever read, via
 the SQLite backup API). Screenshots + results.json go to docs/proof/. Exit code 1 if any flow fails.
 Flows 5-8, 14 and 21 build on state from earlier flows (4, 7, 13) in the same run.
+Flow 28b serves a DB of SYNTHETIC prices (tests/test_shadow.py fixture) to show a filled shadow table before real
+month-ends exist; its screenshot and results.json entry say so.
 """
 import argparse
 import io
@@ -401,7 +403,7 @@ def f01(R, f):
 
 
 @flow(2, "header-regime", "GET / on the main proof server (:8601, copy of data/finres.db); read the header",
-      "as-of date, data age, Qwen status, SPY vs 200DMA and % of universe in uptrend; no brake (ADR-005)")
+      "App/Guide tabs, as-of date, data age, Qwen status, SPY vs 200DMA and % of universe in uptrend; no brake (ADR-005)")
 def f02(R, f):
     page = f.page(R.main.url)
     h = txt(page, "#header")
@@ -411,6 +413,8 @@ def f02(R, f):
     p = re.search(r"SPY (above|below) 200DMA · (\d+)% of universe in uptrend", h)
     f.ok(p, f"regime pill: “{txt(page, '#header .pill')}”")
     f.ok("brake" not in h.lower(), "no brake state anywhere in the header (ADR-005 removed the brake)")
+    tabs = [norm(x) for x in page.locator("#header .tabs a").all_text_contents()]
+    f.ok(tabs == ["App", "Guide"] and txt(page, "#header .tabs a.on") == "App", f"header tabs {tabs}, App active")
     f.ok(page.locator("#refresh button").is_enabled(), "Refresh button enabled (live mode)")
     f.shot(page, "02-header.png", "#header")
 
@@ -911,10 +915,15 @@ def f25(R, f):
            "#analysis .card-h", "#analysis .watch")
 
 
-@flow(26, "data-check", "run e2e/data_check.py (TL-written independent recomputation) with FINRES_DB=/tmp/finres_proof.db",
+@flow(26, "data-check", "run e2e/data_check.py (TL-written independent recomputation) with FINRES_DB = a fresh copy "
+      "of the base proof DB (/tmp/finres_proof_datacheck.db)",
       "close, 12-1 return and SMA200 from the app == independent yfinance recomputation for NVDA, VST, TSM")
 def f26(R, f):
-    env = {k: v for k, v in os.environ.items() if not k.startswith("FINRES_")} | {"FINRES_DB": MAIN_DB, "PYTHONPATH": "."}
+    # Not MAIN_DB: flow 10's live Analyze COST (a held name by then) stores today's intraday COST close, which moves
+    # the app's as-of date past the universe's last close, and data_check then compares against live partial prices.
+    db = "/tmp/finres_proof_datacheck.db"
+    copy_db(BASE_DB, db)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("FINRES_")} | {"FINRES_DB": db, "PYTHONPATH": "."}
     p = subprocess.run([PY, "e2e/data_check.py"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     f.ok(p.returncode == 0, f"exit {p.returncode}" + (f": {p.stderr[-300:]}" if p.returncode else ""))
     rows = json.loads((PROOF / "data_check.json").read_text())
@@ -925,6 +934,183 @@ def f26(R, f):
                                f"{r['ret12_1_app']}/{r['ret12_1_indep']}, sma200 {r['sma200_app']}/{r['sma200_indep']} "
                                "(app/independent)")
     f.shots.append("data_check.json")
+
+
+def _lab_json() -> dict:
+    """The lab numbers the app's Track record should quote, read straight from lab/results/*.json."""
+    lab = ROOT / "lab" / "results"
+    oos = json.loads((lab / "oos.json").read_text())
+    x = {r["name"]: float(r["xirr"]) for r in oos["rows"]}
+    x |= {r["name"]: float(r["xirr"]) for r in json.loads((lab / "fidelity.json").read_text())["ai_OOS"]}
+    h = {r["name"]: float(r["xirr"]) for r in json.loads((lab / "h1.json").read_text())["ai_pit"]["rows"]}
+    return {"oos": {"rule": x["ew_trend10"], "ew": x["ew_all"], "smh": x["DCA SMH"]},
+            "pit": {"rule": h["rule (ew_trend10)"], "ew": h["EW (ew_all)"], "smh": h["DCA SMH"]}}
+
+
+@flow(27, "guide-tab", "GET / → click “Guide” in the header → read /guide, scroll to “What to expect (honest)” → click "
+      "“App”", "/guide shows h1 “FinRes: user guide”, the rules table and the honest table whose hindsight-free row "
+      "matches lab/results/h1.json (rounded); “App” returns to the app")
+def f27(R, f):
+    page = f.page(R.main.url)
+    f.ok(txt(page, "#header .tabs a.on") == "App", f"header tabs {[norm(x) for x in page.locator('#header .tabs a').all_text_contents()]}, "
+                                                   f"active “{txt(page, '#header .tabs a.on')}”")
+    with page.expect_navigation(timeout=30000):
+        page.click("#header .tabs a:text-is('Guide')")
+    f.ok(page.url.rstrip("/").endswith("/guide"), f"navigated to {page.url}")
+    f.ok(txt(page, "main.guide h1") == "FinRes: user guide", f"h1: “{txt(page, 'main.guide h1')}”; active tab "
+                                                              f"“{txt(page, '#header .tabs a.on')}”")
+    rules = page.locator("main.guide h2:has-text('The rules') + table")
+    heads = [norm(x) for x in rules.locator("tbody td:first-child").all_text_contents()]
+    f.ok(heads == ["Buy", "Uptrend", "Sell", "Warning"], f"rules table rows: {heads}")
+    f.shot(page, "27a-guide-tab.png")
+    h2 = page.locator("main.guide h2:text-is('What to expect (honest)')")
+    f.ok(h2.count() == 1, "“What to expect (honest)” section present")
+    table = page.locator("main.guide h2:text-is('What to expect (honest)') ~ table").first
+    rows = table.evaluate("t => [...t.querySelectorAll('tbody tr')].map(tr => [...tr.cells].map(c => c.textContent.trim()))")
+    hf = next((r for r in rows if r[0].startswith("Hindsight-free")), None)
+    pit = _lab_json()["pit"]
+    want = [f"{round(pit[k] * 100)}%" for k in ("rule", "ew", "smh")]
+    f.ok(hf and hf[1:] == want, f"hindsight-free row {hf} == lab h1.json rule/EW-hold/SMH {pit['rule']:.1%}/"
+                                f"{pit['ew']:.1%}/{pit['smh']:.1%} rounded {want}")
+    h2.scroll_into_view_if_needed()
+    page.evaluate("window.scrollBy(0, -12)")
+    mark(page.locator("main.guide h2:text-is('What to expect (honest)') ~ table tbody tr").filter(has_text="Hindsight-free"))
+    f.shot(page, "27b-guide-honest.png")
+    with page.expect_navigation(timeout=60000):
+        page.click("#header .tabs a:text-is('App')")
+    wait_htmx(page)
+    f.ok(page.locator("#plan").count() == 1 and txt(page, "#header .tabs a.on") == "App",
+         f"“App” → {page.url} with the plan section (“{txt(page, '#plan h2')}”)")
+
+
+def synthetic_shadow_db(path: str, end: str = "2026-11-05", ref: date = date(2026, 11, 10)) -> int:
+    """tests/test_shadow.py's synthetic price fixture (bdays from 2025-01-01, rng seed 5, drift −0.1%/day on every 4th
+    name else +0.2%, 1.5% noise), but over the REAL universe + benchmarks so the real app can render it; then
+    state.step_shadows(ref) exactly as the tests do (EDGAR/8-K stubbed offline). Returns rows added."""
+    import numpy as np
+
+    from finres import db, edgar, prices, state
+    from finres import config as fcfg
+    _rm_db(path)
+    names = fcfg.load_universe()["tickers"] + fcfg.BENCHMARKS
+    idx = pd.bdate_range("2025-01-01", end)
+    rng = np.random.default_rng(5)
+    drift = {t: (0.002 if i % 4 else -0.001) for i, t in enumerate(names)}
+    df = pd.DataFrame({t: 40 * np.exp(np.cumsum(drift[t] + 0.015 * rng.standard_normal(len(idx)))) for t in names},
+                      index=idx)
+    conn = db.connect(path)
+    saved = edgar.companyfacts, edgar.recent_8k
+    try:
+        prices.store(conn, df)
+        edgar.companyfacts, edgar.recent_8k = (lambda *a, **k: None), (lambda *a, **k: [])
+        state.clear_cache()
+        n = state.step_shadows(conn, ref=ref)
+        # a snapshot dated today so the served app does not auto-refresh (which would download real prices)
+        db.upsert_snapshot(conn, "SPY", date.today().isoformat(), {}, {})
+    finally:
+        edgar.companyfacts, edgar.recent_8k = saved
+        state.clear_cache()
+        conn.close()
+    return n
+
+
+@flow(28, "shadow-ledgers", "(a) GET / on the main proof server → Track record; (b) pytest -q tests/test_shadow.py; "
+      "(c) SYNTHETIC prices (test_shadow fixture over the real universe, to 2026-11-05) in /tmp/finres_proof_shadow.db, "
+      "state.step_shadows(ref=2026-11-10), served by the real app on :8607 → Track record",
+      "(a) empty state “Starts after the first completed month-end (2026-09-30) and the next refresh.”; (b) tests pass; "
+      "(c) shadow table: rule / equal-weight / SMH DCA, 2 months, $5,000 invested each, values = state replay")
+def f28(R, f):
+    head = "#track h3:has-text('Forward shadow portfolios')"
+    page = f.page(R.main.url)
+    n_live = q(MAIN_DB, "SELECT COUNT(*) FROM shadow")[0][0]
+    empty = txt(page, head + " + p")
+    f.ok(n_live == 0 and empty == "Starts after the first completed month-end (2026-09-30) and the next refresh.",
+         f"(a) live proof DB has {n_live} shadow rows; page: “{txt(page, head)}” / “{empty}”")
+    mark(page.locator(head + " + p"))
+    f.shot(page, "28a-shadow-empty.png", [head, head + " + p"])
+    p = subprocess.run([PY, "-m", "pytest", "-q", "tests/test_shadow.py"], cwd=ROOT, capture_output=True, text=True,
+                       timeout=600, env={k: v for k, v in os.environ.items() if not k.startswith("FINRES_")})
+    last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else p.stderr[-300:]
+    f.extra["output"] = p.stdout[-3000:]
+    f.ok(p.returncode == 0, f"(b) pytest -q tests/test_shadow.py → exit {p.returncode}: {last}")
+    db_path = "/tmp/finres_proof_shadow.db"
+    added = synthetic_shadow_db(db_path)
+    months = q(db_path, "SELECT strategy, month, state FROM shadow ORDER BY strategy, month")
+    f.ok(added == 6 and len(months) == 6, f"(c) SYNTHETIC prices: step_shadows(ref=2026-11-10) stored {added} rows: "
+         + ", ".join(f"{s} {m} fill {json.loads(j)['fill_date']} ({len(json.loads(j)['buys'])} buys)" for s, m, j in months))
+    f.extra["synthetic_prices"] = ("28b uses SYNTHETIC prices (tests/test_shadow.py fixture logic over the real "
+                                   "universe, 2025-01-01..2026-11-05); not market data")
+    from finres import db as fdb, state
+    c = fdb.connect(db_path)
+    try:
+        exp = {r["strategy"]: r for r in state._shadow_rows(c)}
+    finally:
+        c.close()
+    srv = f.server(8607, db_path)
+    page = f.page(srv.url)
+    rows = page.locator(head + " + div.scroll tbody tr").evaluate_all(
+        "trs => trs.map(tr => [...tr.cells].map(c => c.textContent.trim()))")
+    f.note("(c) page rows: " + "; ".join(" | ".join(r) for r in rows))
+    f.ok([r[0] for r in rows] == list(state.SHADOWS.values()), f"(c) strategies: {[r[0] for r in rows]}")
+    f.ok(all(r[1] == "2" and r[2] == "$5,000" for r in rows), "(c) every ledger: 2 months, $5,000 invested")
+    f.ok(all(money(r[3]) is not None and abs(money(r[3]) - exp[r[0]]["value"]) <= 0.5 for r in rows if r[0] in exp),
+         "(c) values match state._shadow_rows replay: " + ", ".join(f"{k} ${v['value']:,.2f} XIRR {v['xirr']:+.1%}"
+                                                                  for k, v in exp.items()))
+    page.locator(head).evaluate("h => h.textContent += '  [SYNTHETIC prices — proof fixture, not market data]'")
+    mark(page.locator(head + " + div.scroll tbody tr"))
+    f.shot(page, "28b-shadow-table.png", [head, head + " + div.scroll"])
+
+
+@flow(29, "what-changed", "copy; duplicate the latest snapshot into a date 7 days earlier with 3 tickers' trend flipped "
+      "(2 now-uptrend → False, 1 now-no-uptrend → True); server :8608 → GET /",
+      "“Since <date>: 2 new uptrends (A, B) · 1 lost uptrend (C)” under the plan title")
+def f29(R, f):
+    db = "/tmp/finres_proof_changes.db"
+    copy_db(BASE_DB, db)
+    last = q(db, "SELECT MAX(date) FROM snapshot")[0][0]
+    prev = (date.fromisoformat(last) - pd.Timedelta(days=7)).isoformat()
+    snap = q(db, "SELECT ticker, factors, raw FROM snapshot WHERE date = ? ORDER BY ticker", (last,))
+    trend = {t: json.loads(fx).get("trend") for t, fx, _ in snap}
+    up = [t for t in sorted(trend) if trend[t] is True][:2]
+    down = [t for t in sorted(trend) if trend[t] is False][:1]
+    rows = []
+    for t, fx, raw in snap:
+        d = json.loads(fx)
+        if t in up + down:
+            d["trend"] = not d["trend"]
+        rows.append((t, prev, json.dumps(d), raw))
+    c = sqlite3.connect(db)
+    with c:
+        c.executemany("INSERT INTO snapshot VALUES (?,?,?,?)", rows)
+    c.close()
+    f.note(f"copied {len(rows)} snapshot rows {last} → {prev}; flipped trend of {', '.join(up + down)}")
+    srv = f.server(8608, db)
+    page = f.page(srv.url)
+    ch = txt(page, "#changes")
+    f.ok(ch.startswith(f"Since {prev}:"), f"block: “{ch}”")
+    f.ok(f"2 new uptrends ({', '.join(up)})" in ch, f"new uptrends = {up}")
+    f.ok(f"1 lost uptrend ({down[0]})" in ch, f"lost uptrend = {down}")
+    mark(page.locator("#changes"))
+    f.shot(page, "29-what-changed.png", ["#plan h2", "#changes"])
+
+
+@flow(30, "lab-verdict", "GET / → Track record → Backtest (lab); expected numbers read from lab/results/{oos,fidelity,h1}.json",
+      "hand-picked out-of-sample headline AND the bold hindsight-free line, both with the JSON values")
+def f30(R, f):
+    lab = _lab_json()
+    page = f.page(R.main.url)
+    base = "#track h3:text-is('Backtest (lab)')"
+    ps = [norm(x) for x in page.locator(base + " ~ p").all_text_contents()]
+    o, h = lab["oos"], lab["pit"]
+    want_o = f"uptrend rotation {o['rule']:.1%} vs equal-weight universe {o['ew']:.1%} vs SMH DCA {o['smh']:.1%} XIRR"
+    want_h = f"rule {h['rule']:.1%} vs equal-weight hold {h['ew']:.1%} vs SMH DCA {h['smh']:.1%} XIRR"
+    f.ok(ps and want_o in ps[0] and "out-of-sample" in ps[0] and "Hindsight-biased" in ps[0],
+         f"headline (oos/fidelity.json: “{want_o}”): “{ps[0] if ps else ''}”")
+    strong = txt(page, base + " ~ p strong")
+    f.ok(want_h in strong and strong.startswith("Hindsight-free re-test"), f"bold line (h1.json: “{want_h}”): “{strong}”")
+    f.extra["lab_json"] = lab
+    mark(page.locator(base + " ~ p"))
+    f.shot(page, "30-lab-verdict.png", [base, base + " ~ p"])
 
 
 # ---------------------------------------------------------------- main

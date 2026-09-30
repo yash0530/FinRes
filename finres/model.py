@@ -193,15 +193,9 @@ def xirr(dates, flows) -> float:
     return (lo + hi) / 2
 
 
-def warnings(scored_row) -> list[str]:
+def warnings(r) -> list[str]:
     """Live-only caution flags for one scored row."""
-    out = []
-    rb = scored_row.get("rev_breadth")
-    if _ok(rb) and rb < -0.3:
-        out.append("EPS revisions negative")
-    if bool(scored_row.get("speculative", False)):
-        out.append("speculative")
-    pit = scored_row.get("fund_pit")
-    if _ok(pit) and not bool(pit):
-        out.append("not point-in-time fundamentals")
-    return out
+    rb, pit = r.get("rev_breadth"), r.get("fund_pit")
+    return [w for w, on in (("EPS revisions negative", _ok(rb) and rb < -0.3),
+                            ("speculative", bool(r.get("speculative", False))),
+                            ("not point-in-time fundamentals", _ok(pit) and not bool(pit))) if on]

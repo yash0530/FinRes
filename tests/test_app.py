@@ -437,3 +437,14 @@ def test_refresh_steps_shadows(env, monkeypatch):
     appmod.start_refresh()
     appmod._thread.join(30)
     assert calls == [1]
+
+
+def test_asof_ignores_one_fresher_outside_ticker(env):
+    """A held out-of-universe ticker with a newer close must not move the universe's as-of date."""
+    from finres import state
+    conn = env["conn"]
+    last = conn.execute("SELECT MAX(d) FROM prices").fetchone()[0]
+    conn.execute("INSERT INTO holdings VALUES ('ZZOUT', 1, 10, '2026-01-01')")
+    conn.execute("INSERT INTO prices VALUES ('ZZOUT', ?, 11.0)", ("2099-01-01",))
+    conn.commit()
+    assert str(state.frame(conn, None)["t"].date()) == last

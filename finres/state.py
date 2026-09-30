@@ -96,9 +96,11 @@ def frame(conn, asof: date | None, extra: tuple = (), raws: dict | None = None) 
     snaps = db.latest_snapshots(conn)
     want = list(dict.fromkeys(u["tickers"] + config.BENCHMARKS + held + list(extra)))
     closes = prices.load_closes(conn, want, asof)
-    if closes.empty:
+    uni = closes[[x for x in u["tickers"] if x in closes.columns]].notna().sum(axis=1)
+    if closes.empty or not (uni >= uni.max() / 2).any():
         return None
-    t = closes.index[-1]
+    t = uni.index[uni >= uni.max() / 2][-1]  # as-of = last day most of the universe traded, not one extra ticker
+    closes = closes.loc[:t]
     fac_all = signals.factors_at(closes, t)
     names = [x for x in dict.fromkeys(u["tickers"] + list(extra)) if x in closes.columns]
     raws = {k: v[2] for k, v in snaps.items()} | (raws or {})

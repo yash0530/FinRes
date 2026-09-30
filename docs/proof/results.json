@@ -4,24 +4,24 @@
   "name": "cold-start",
   "steps": "empty DB /tmp/finres_proof_cold.db on :8602 → GET / → progress banner; poll until the refresh finishes and the page reloads",
   "expected": "progress banner while refreshing; after ≤10 min the page reloads with the plan and all categories",
-  "actual": "✓ progress bar visible right after the first GET / | ✓ plan says 'No data yet' while the first refresh runs | mid-progress: “Refreshing… step: estimates 10/129” | ✓ refresh finished and the page reloaded by itself (81 s wall, limit 600 s) | refresh status after reload: “Refresh last run 1.3 min”; header: “Data as of 2026-09-25 · 2 days old” | ✓ 11 categories rendered (universe.toml has 11) | ✓ plan card rendered: “Buy with $2,500 — 10 uptrend names × $250” | cold DB snapshot rows: [('2026-09-27', 129)]",
+  "actual": "✓ progress bar visible right after the first GET / | ✓ plan says 'No data yet' while the first refresh runs | mid-progress: “Refreshing… step: estimates 12/129” | ✓ refresh finished and the page reloaded by itself (94 s wall, limit 600 s) | refresh status after reload: “Refresh last run 1.5 min”; header: “Data as of 2026-09-30 · 0 days old” | ✓ 11 categories rendered (universe.toml has 11) | ✓ plan card rendered: “Buy with $2,500 — 10 uptrend names × $250” | cold DB snapshot rows: [('2026-09-30', 129)]",
   "screenshot": [
    "01a-refresh-progress.png",
    "01b-after-refresh.png"
   ],
   "pass": true,
-  "seconds": 81.6,
-  "refresh_seconds": 81
+  "seconds": 94.5,
+  "refresh_seconds": 94
  },
  {
   "id": 2,
   "name": "header-regime",
   "steps": "GET / on the main proof server (:8601, copy of data/finres.db); read the header",
-  "expected": "as-of date, data age, Qwen status, SPY vs 200DMA and % of universe in uptrend; no brake (ADR-005)",
-  "actual": "✓ as-of + age: “Data as of 2026-09-25 · 2 days old” | ✓ Qwen status: “Qwen ready” | ✓ regime pill: “SPY above 200DMA · 56% of universe in uptrend” | ✓ no brake state anywhere in the header (ADR-005 removed the brake) | ✓ Refresh button enabled (live mode)",
+  "expected": "App/Guide tabs, as-of date, data age, Qwen status, SPY vs 200DMA and % of universe in uptrend; no brake (ADR-005)",
+  "actual": "✓ as-of + age: “Data as of 2026-09-25 · 5 days old” | ✓ Qwen status: “Qwen ready” | ✓ regime pill: “SPY above 200DMA · 55% of universe in uptrend” | ✓ no brake state anywhere in the header (ADR-005 removed the brake) | ✓ header tabs ['App', 'Guide'], App active | ✓ Refresh button enabled (live mode)",
   "screenshot": "02-header.png",
   "pass": true,
-  "seconds": 2.9
+  "seconds": 3.0
  },
  {
   "id": 3,
@@ -31,17 +31,17 @@
   "actual": "✓ 10 buys: STX, SNDK, MU, DELL, LITE, HPE, WTS, ANET, DDOG, SNOW | ✓ equal amounts [250.0] × 10 = $2,500 | ✓ every buy row shows “you hold $X” | ✓ every buy row has a reason | ✓ every buy is labelled UPTREND in its category row | ✓ rules line “Rules: B0R · S2 — ADR-005 · lab/REPORT.md” present | ✓ no BUY/AVOID/WATCH/Brake words in the page text (found: none)",
   "screenshot": "03-plan.png",
   "pass": true,
-  "seconds": 0.4
+  "seconds": 0.5
  },
  {
   "id": 4,
   "name": "holdings-paste",
   "steps": "Edit holdings → paste 7 lines built from live page prices: NVDA at 0.5×price (big gain), a rank<0.70 uptrend name, a name below 200DMA at 2 month-ends, a name at 2×price (−50%), COST (not in universe), and the top 2 buy-list names → Save",
   "expected": "table shows value, weight, P/L and a status for every row; sell list appears",
-  "actual": "names below 200DMA at both completed month-ends (eligible): NXPI, MCHP, CAMT, AMKR, SNPS, FN, TEL, META, ORCL, APP, CRWV, IREN, APLD, CEG, VST, TLN, NRG, CCJ, LEU, BWXT, OKLO, SMR, NNE, UEC, NXE, HUBB, PRIM, GNRC, FLNC, MOD, AAON, DOV, XYL | pasted: NVDA 10 112.53 / QCOM 15 201.97 / NXPI 10 261.89 / AMD 5 1261.26 / COST 3 922.77 / STX 1 916.83 / SNDK 1 1777.80 | roles: gain=NVDA, rank<0.70 (grade F, UPTREND)=QCOM, 2 month-ends below 200DMA=NXPI, −50% stop=AMD, not in universe=COST, held buy-list names=STX,SNDK | ✓ holdings table has exactly the 7 pasted tickers | ✓ every row shows value, weight and P/L | ✓ NVDA P/L +100% (cost = half the price) | ✓ AMD: P/L -50%, status “-35% stop” | ✓ NXPI: status “2 month-ends below 200DMA” | ✓ COST (outside universe, S2 rules still apply): status “2 month-ends below 200DMA” | ✓ QCOM (rank grade F): status “OK” | statuses: AMD $3,153 19% -50% -35% stop; COST $2,768 17% +0% 2 month-ends below 200DMA; NVDA $2,251 14% +100% OK; NXPI $2,381 15% -9% 2 month-ends below 200DMA; QCOM $3,030 19% +0% OK; SNDK $1,778 11% +0% OK; STX $917 6% +0% OK | totals row: “Total$18,543 $16,277100% -12%”",
+  "actual": "names below 200DMA at both completed month-ends (eligible): NXPI, MCHP, CAMT, AMKR, SNPS, FN, TEL, META, ORCL, APP, CRWV, IREN, APLD, CEG, VST, TLN, NRG, CCJ, LEU, BWXT, OKLO, SMR, NNE, UEC, NXE, HUBB, PRIM, GNRC, FLNC, MOD, AAON, DOV, XYL | pasted: NVDA 10 112.53 / QCOM 15 201.97 / NXPI 10 261.89 / AMD 5 1261.26 / COST 3 922.77 / STX 1 916.83 / SNDK 1 1777.80 | roles: gain=NVDA, rank<0.70 (grade D, UPTREND)=QCOM, 2 month-ends below 200DMA=NXPI, −50% stop=AMD, not in universe=COST, held buy-list names=STX,SNDK | ✓ holdings table has exactly the 7 pasted tickers | ✓ every row shows value, weight and P/L | ✓ NVDA P/L +100% (cost = half the price) | ✓ AMD: P/L -50%, status “-35% stop” | ✓ NXPI: status “2 month-ends below 200DMA” | ✓ COST (outside universe, S2 rules still apply): status “2 month-ends below 200DMA” | ✓ QCOM (rank grade D): status “OK” | statuses: AMD $3,153 19% -50% -35% stop; COST $2,768 17% +0% 2 month-ends below 200DMA; NVDA $2,251 14% +100% OK; NXPI $2,381 15% -9% 2 month-ends below 200DMA; QCOM $3,030 19% +0% OK; SNDK $1,778 11% +0% OK; STX $917 6% +0% OK | totals row: “Total$18,543 $16,277100% -12%”",
   "screenshot": "04-holdings-paste.png",
   "pass": true,
-  "seconds": 2.9
+  "seconds": 3.0
  },
  {
   "id": 5,
@@ -71,7 +71,7 @@
   "actual": "buys being recorded for 2026-09: MU, DELL, TER, LITE, HPE, WDC, WTS, ANET, DDOG, SNOW | ✓ SQLite picks for 2026-09: MU, DELL, TER, LITE, HPE, WDC, WTS, ANET, DDOG, SNOW | ✓ Track record shows 10 rows for 2026-09 | ✓ holdings include all 10 buys (17 holdings now) | track summary: “Average pick return +0% vs SMH +0% vs universe +0% over the same windows.”",
   "screenshot": "07-mark-done.png",
   "pass": true,
-  "seconds": 1.0
+  "seconds": 1.1
  },
  {
   "id": 8,
@@ -81,7 +81,7 @@
   "actual": "✓ message: “Already recorded for 2026-09.” | ✓ picks rows before/after: 10/10",
   "screenshot": "08-mark-done-twice.png",
   "pass": true,
-  "seconds": 0.7
+  "seconds": 0.8
  },
  {
   "id": 9,
@@ -114,7 +114,7 @@
    "11b-analyze-invalid.png"
   ],
   "pass": true,
-  "seconds": 2.4
+  "seconds": 2.8
  },
  {
   "id": 12,
@@ -131,14 +131,14 @@
   "name": "explain-live",
   "steps": "Analyze NVDA → click “Explain with Qwen” (live Qwen, no cached thesis) → wait",
   "expected": "polling state, then within 10 min a thesis card with Bull/Bear points + evidence keys, Qwen verdict vs rule label, grounding box",
-  "actual": "✓ polling state: “Qwen is explaining NVDA… 3 s · Qwen xhigh reasoning usually takes 2–7 min” | ✓ thesis arrived after 139 s (limit 600 s) | ✓ verdict line: “Qwen: BUY (medium) · Rule: UPTREND” | ✓ sections: ['Bull', 'Bear', 'What would change my mind'] | ✓ 8 points each with evidence keys, e.g. “quality_pct, gp_assets” | ✓ grounding box: “All numbers traced to the data” | footer: “Qwen 3.8 (local) · xhigh · 138 s · v4 · 2026-09-27T23:26:40 · cached until Sunday · Regenerate”; thesis: “Nvidia is a highly profitable, fast-growing AI semiconductor business with positive estimate revisions and a passing trend gate. No serious SEC 8-K events appeared in the last 45 days, and the 14.4x f…”",
+  "actual": "✓ polling state: “Qwen is explaining NVDA… 3 s · Qwen xhigh reasoning usually takes 2–7 min” | ✓ thesis arrived after 227 s (limit 600 s) | ✓ verdict line: “Qwen: BUY (medium) · Rule: UPTREND” | ✓ sections: ['Bull', 'Bear', 'What would change my mind'] | ✓ 7 points each with evidence keys, e.g. “gp_assets, revenue_growth_ttm, quality_pct” | ✓ grounding box: “All numbers traced to the data” | footer: “Qwen 3.8 (local) · xhigh · 226 s · v4 · 2026-09-30T09:15:26 · cached until Sunday · Regenerate”; thesis: “I agree with the app's buyable-uptrend rule, but I would treat this as a cautious buy rather than a priority add. The business is high-quality, profitable, and still in an uptrend, while momentum is o…”",
   "screenshot": [
    "13a-explain-polling.png",
    "13b-explain-card.png"
   ],
   "pass": true,
-  "seconds": 140.0,
-  "explain_seconds": 139
+  "seconds": 227.8,
+  "explain_seconds": 227
  },
  {
   "id": 14,
@@ -155,10 +155,10 @@
   "name": "explain-busy",
   "steps": "POST /explain/VST?force=1, then immediately Analyze PLTR → click Explain; then wait for VST",
   "expected": "PLTR shows “Qwen is busy explaining VST”; VST then finishes so the slot is free",
-  "actual": "✓ VST job started (force=1) | ✓ PLTR → “Qwen is busy explaining VST (started 1 s ago). Try again when it finishes.” | ✓ VST finished after 131 s",
+  "actual": "✓ VST job started (force=1) | ✓ PLTR → “Qwen is busy explaining VST (started 1 s ago). Try again when it finishes.” | ✓ VST finished after 141 s",
   "screenshot": "15-explain-busy.png",
   "pass": true,
-  "seconds": 131.6
+  "seconds": 141.6
  },
  {
   "id": 16,
@@ -178,7 +178,7 @@
   "actual": "✓ banner: “Replay as of 2022-09-30: no downloads, no refresh. Revisions are off (no history).” | ✓ data as of 2022-09-30 | ✓ regime: “SPY below 200DMA · 9% of universe in uptrend” | ✓ 5 buys: CCJ, ON, SMCI, HUBB, CDNS | ✓ refresh: “Refresh replay: refresh disabled” (button disabled)",
   "screenshot": "17-replay-2022.png",
   "pass": true,
-  "seconds": 3.2
+  "seconds": 3.0
  },
  {
   "id": 18,
@@ -198,7 +198,7 @@
   "actual": "✓ holdings: “No holdings yet. Paste them below, or click “I placed these buys” after buying.” | ✓ track record: “No picks recorded yet — they appear after you click “I placed these buys”.”",
   "screenshot": "19-empty-states.png",
   "pass": true,
-  "seconds": 3.2
+  "seconds": 3.3
  },
  {
   "id": 20,
@@ -215,7 +215,7 @@
   "name": "restart-persistence",
   "steps": "stop and restart the main proof server (same DB) → GET /, Analyze NVDA, Explain",
   "expected": "holdings, picks and the cached thesis are all still there",
-  "actual": "server restarted (pid 69726); DB has 17 holdings, 10 picks, 2 theses | ✓ 17 holdings rendered | ✓ 10 track-record rows rendered | ✓ thesis: “Qwen: BUY (medium) · Rule: UPTREND cached this week”",
+  "actual": "server restarted (pid 39242); DB has 17 holdings, 10 picks, 2 theses | ✓ 17 holdings rendered | ✓ 10 track-record rows rendered | ✓ thesis: “Qwen: BUY (medium) · Rule: UPTREND cached this week”",
   "screenshot": "21-restart-persistence.png",
   "pass": true,
   "seconds": 3.7
@@ -238,7 +238,7 @@
   "actual": "✓ body background rgb(21, 23, 26) (lum 0.09), text rgb(231, 229, 224) (lum 0.90)",
   "screenshot": "23-dark-mode.png",
   "pass": true,
-  "seconds": 0.5
+  "seconds": 0.6
  },
  {
   "id": 24,
@@ -249,7 +249,7 @@
   "screenshot": null,
   "pass": true,
   "seconds": 4.5,
-  "output": "parity: app DB /tmp/finres_proof.db vs lab ctx_ai (lab/data/lab.db)\nas-of       tickers elig app/lab uptrend trend Δ max|Δcomp| max Δclose buys =  result\n2022-06-30      118   107/107         10       0    0.0e+00    5.6e-07    yes  PASS\n            B0R buys (app): SO, PWR, ETR\n            (lab's own universe+laggards ranking would change 106 composites; the restricted re-score is what is compared)\n2024-12-31      125   119/119         72       0    0.0e+00    3.2e-07    yes  PASS\n            B0R buys (app): CLS, NVDA, TLN, APP, PLTR, TSM, META, ANET, TT, VRT\n            (lab's own universe+laggards ranking would change 118 composites; the restricted re-score is what is compared)\nPARITY PASS\n"
+  "output": "parity: app DB /tmp/finres_proof.db vs lab ctx_ai (lab/data/lab.db)\nas-of       tickers elig app/lab uptrend trend Δ max|Δcomp| max Δclose buys =  result\n2022-06-30      118   111/111         10       0    0.0e+00    5.6e-07    yes  PASS\n            B0R buys (app): PWR, SO, IRM\n            (lab's own universe+laggards ranking would change 110 composites; the restricted re-score is what is compared)\n2024-12-31      125   120/120         72       0    0.0e+00    3.2e-07    yes  PASS\n            B0R buys (app): CLS, NVDA, TLN, APP, PLTR, TSM, META, ANET, TT, VRT\n            (lab's own universe+laggards ranking would change 119 composites; the restricted re-score is what is compared)\nPARITY PASS\n"
  },
  {
   "id": 25,
@@ -259,17 +259,17 @@
   "actual": "rows with an 8-K tag: OKLO, XYL | ✓ OKLO row tag title: “Serious SEC 8-K in the last 45 days: material agreement terminated (2026-09-11)” | ✓ OKLO card Watch line: “8-K Watch: EPS revisions negative · speculative · not point-in-time fundamentals · SEC 8-K: material agreement terminated (2026-09-11)”",
   "screenshot": "25-sec-8k-flag.png",
   "pass": true,
-  "seconds": 0.9
+  "seconds": 0.8
  },
  {
   "id": 26,
   "name": "data-check",
-  "steps": "run e2e/data_check.py (TL-written independent recomputation) with FINRES_DB=/tmp/finres_proof.db",
+  "steps": "run e2e/data_check.py (TL-written independent recomputation) with FINRES_DB = a fresh copy of the base proof DB (/tmp/finres_proof_datacheck.db)",
   "expected": "close, 12-1 return and SMA200 from the app == independent yfinance recomputation for NVDA, VST, TSM",
   "actual": "✓ exit 0 | ✓ NVDA 2026-09-25: close 225.07/225.07, 12-1 0.1862/0.1862, sma200 199.13/199.13 (app/independent) | ✓ VST 2026-09-25: close 138.46/138.46, 12-1 -0.3041/-0.3041, sma200 155.16/155.16 (app/independent) | ✓ TSM 2026-09-25: close 450.61/450.61, 12-1 0.4997/0.4997, sma200 381.35/381.35 (app/independent)",
   "screenshot": "data_check.json",
   "pass": true,
-  "seconds": 3.8,
+  "seconds": 5.1,
   "output": [
    {
     "ticker": "NVDA",
@@ -280,7 +280,7 @@
     "ret12_1_app": 0.1862,
     "sma200_indep": 199.13,
     "sma200_app": 199.13,
-    "sma200_yahoo_info": 199.47325,
+    "sma200_yahoo_info": 199.90985,
     "gross_margin_edgar": 0.7467,
     "gross_margin_yahoo": 0.74674004,
     "rev_growth_edgar": 0.8338,
@@ -295,7 +295,7 @@
     "ret12_1_app": -0.3041,
     "sma200_indep": 155.16,
     "sma200_app": 155.16,
-    "sma200_yahoo_info": 155.643,
+    "sma200_yahoo_info": 155.38734,
     "gross_margin_edgar": null,
     "gross_margin_yahoo": 0.38309,
     "rev_growth_edgar": 0.1861,
@@ -310,12 +310,72 @@
     "ret12_1_app": 0.4997,
     "sma200_indep": 381.35,
     "sma200_app": 381.35,
-    "sma200_yahoo_info": 383.1671,
+    "sma200_yahoo_info": 384.64844,
     "gross_margin_edgar": null,
     "gross_margin_yahoo": 0.6423,
     "rev_growth_edgar": null,
     "rev_growth_yahoo_quarterly": 0.36
    }
   ]
+ },
+ {
+  "id": 27,
+  "name": "guide-tab",
+  "steps": "GET / → click “Guide” in the header → read /guide, scroll to “What to expect (honest)” → click “App”",
+  "expected": "/guide shows h1 “FinRes: user guide”, the rules table and the honest table whose hindsight-free row matches lab/results/h1.json (rounded); “App” returns to the app",
+  "actual": "✓ header tabs ['App', 'Guide'], active “App” | ✓ navigated to http://127.0.0.1:8601/guide | ✓ h1: “FinRes: user guide”; active tab “Guide” | ✓ rules table rows: ['Buy', 'Uptrend', 'Sell', 'Warning'] | ✓ “What to expect (honest)” section present | ✓ hindsight-free row ['Hindsight-free list, rebuilt each year from 10-Ks, 2010–26', '27%', '44%', '30%'] == lab h1.json rule/EW-hold/SMH 26.6%/44.2%/29.7% rounded ['27%', '44%', '30%'] | ✓ “App” → http://127.0.0.1:8601/ with the plan section (“This month’s plan”)",
+  "screenshot": [
+   "27a-guide-tab.png",
+   "27b-guide-honest.png"
+  ],
+  "pass": true,
+  "seconds": 0.8
+ },
+ {
+  "id": 28,
+  "name": "shadow-ledgers",
+  "steps": "(a) GET / on the main proof server → Track record; (b) pytest -q tests/test_shadow.py; (c) SYNTHETIC prices (test_shadow fixture over the real universe, to 2026-11-05) in /tmp/finres_proof_shadow.db, state.step_shadows(ref=2026-11-10), served by the real app on :8607 → Track record",
+  "expected": "(a) empty state “Starts after the first completed month-end (2026-09-30) and the next refresh.”; (b) tests pass; (c) shadow table: rule / equal-weight / SMH DCA, 2 months, $5,000 invested each, values = state replay",
+  "actual": "✓ (a) live proof DB has 0 shadow rows; page: “Forward shadow portfolios (since 2026-09, no hindsight)” / “Starts after the first completed month-end (2026-09-30) and the next refresh.” | ✓ (b) pytest -q tests/test_shadow.py → exit 0: 5 passed in 1.00s | ✓ (c) SYNTHETIC prices: step_shadows(ref=2026-11-10) stored 6 rows: ew 2026-09 fill 2026-10-01 (129 buys), ew 2026-10 fill 2026-11-02 (129 buys), rule 2026-09 fill 2026-10-01 (10 buys), rule 2026-10 fill 2026-11-02 (10 buys), smh 2026-09 fill 2026-10-01 (1 buys), smh 2026-10 fill 2026-11-02 (1 buys) | (c) page rows: Shipped rule (B0R · S2) | 2 | $5,000 | $5,077 | +2% total; Equal-weight universe | 2 | $5,000 | $5,071 | +1% total; SMH DCA | 2 | $5,000 | $5,471 | +9% total | ✓ (c) strategies: ['Shipped rule (B0R · S2)', 'Equal-weight universe', 'SMH DCA'] | ✓ (c) every ledger: 2 months, $5,000 invested | ✓ (c) values match state._shadow_rows replay: Shipped rule (B0R · S2) $5,077.49 XIRR +34.2%, Equal-weight universe $5,071.42 XIRR +31.1%, SMH DCA $5,471.31 XIRR +435.8%",
+  "screenshot": [
+   "28a-shadow-empty.png",
+   "28b-shadow-table.png"
+  ],
+  "pass": true,
+  "seconds": 7.8,
+  "output": ".....                                                                    [100%]\n5 passed in 1.00s\n",
+  "synthetic_prices": "28b uses SYNTHETIC prices (tests/test_shadow.py fixture logic over the real universe, 2025-01-01..2026-11-05); not market data"
+ },
+ {
+  "id": 29,
+  "name": "what-changed",
+  "steps": "copy; duplicate the latest snapshot into a date 7 days earlier with 3 tickers' trend flipped (2 now-uptrend → False, 1 now-no-uptrend → True); server :8608 → GET /",
+  "expected": "“Since <date>: 2 new uptrends (A, B) · 1 lost uptrend (C)” under the plan title",
+  "actual": "copied 129 snapshot rows 2026-09-27 → 2026-09-20; flipped trend of ACLS, ACMR, AAOI | ✓ block: “Since 2026-09-20: 2 new uptrends (ACLS, ACMR) · 1 lost uptrend (AAOI)” | ✓ new uptrends = ['ACLS', 'ACMR'] | ✓ lost uptrend = ['AAOI']",
+  "screenshot": "29-what-changed.png",
+  "pass": true,
+  "seconds": 3.2
+ },
+ {
+  "id": 30,
+  "name": "lab-verdict",
+  "steps": "GET / → Track record → Backtest (lab); expected numbers read from lab/results/{oos,fidelity,h1}.json",
+  "expected": "hand-picked out-of-sample headline AND the bold hindsight-free line, both with the JSON values",
+  "actual": "✓ headline (oos/fidelity.json: “uptrend rotation 40.0% vs equal-weight universe 36.9% vs SMH DCA 39.9% XIRR”): “Lab (2019–2026, out-of-sample): uptrend rotation 40.0% vs equal-weight universe 36.9% vs SMH DCA 39.9% XIRR; the ranking model 41.6% failed its gates. Hindsight-biased universe: absolute numbers are inflated.” | ✓ bold line (h1.json: “rule 26.6% vs equal-weight hold 44.2% vs SMH DCA 29.7% XIRR”): “Hindsight-free re-test (2010–2026, universe rebuilt each year from 10-Ks): rule 26.6% vs equal-weight hold 44.2% vs SMH DCA 29.7% XIRR. The rule did not beat SMH without hindsight (ADR-009).”",
+  "screenshot": "30-lab-verdict.png",
+  "pass": true,
+  "seconds": 0.4,
+  "lab_json": {
+   "oos": {
+    "rule": 0.3998330107973568,
+    "ew": 0.3694758678191553,
+    "smh": 0.39854840853954177
+   },
+   "pit": {
+    "rule": 0.2659552542849625,
+    "ew": 0.4421820036584062,
+    "smh": 0.2968532769241191
+   }
+  }
  }
 ]

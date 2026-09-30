@@ -123,9 +123,9 @@
   {% endif %}
   <h3>Forward shadow portfolios (since {{ s.shadow_start }}, no hindsight)</h3>
   {% if s.shadow %}<div class="scroll"><table>
-    <thead><tr><th>Strategy</th><th class="n">Months</th><th class="n">Invested</th><th class="n">Value</th><th class="n">XIRR</th></tr></thead>
+    <thead><tr><th>Strategy</th><th class="n">Months</th><th class="n">Invested</th><th class="n">Value</th><th class="n" title="Total return until 12 months have passed (annualizing a few months is misleading), then XIRR">Return</th></tr></thead>
     <tbody>{% for x in s.shadow %}<tr><td>{{ x.strategy }}</td><td class="n">{{ x.months }}</td><td class="n">{{ x.invested|money0 }}</td>
-      <td class="n">{{ x.value|money0 }}</td><td class="n">{{ signed(x.xirr) }}</td></tr>{% endfor %}</tbody>
+      <td class="n">{{ x.value|money0 }}</td><td class="n">{% if x.months >= 12 %}{{ signed(x.xirr) }} /yr{% else %}{{ signed(x.value / x.invested - 1) }} total{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<p class="empty">Starts after the first completed month-end (2026-09-30) and the next refresh.</p>{% endif %}
   <h3>Backtest (lab)</h3>
