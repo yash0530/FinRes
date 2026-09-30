@@ -1,0 +1,9 @@
+{
+  "_note": "FROZEN 2026-09-29 by ADR-007 before any 10-K was scored. Case-insensitive, word-boundary matches. Do not edit; a new dictionary needs a new ADR.",
+  "compute": ["data center", "datacenter", "data centers", "datacenters", "hyperscale", "hyperscaler", "hyperscalers", "GPU", "GPUs", "accelerator", "accelerators", "high-performance computing", "high performance computing", "HPC"],
+  "ai": ["artificial intelligence", "machine learning", "neural network", "neural networks", "deep learning", "generative AI", "large language model", "large language models"],
+  "network": ["optical interconnect", "optical interconnects", "Ethernet switch", "Ethernet switches", "silicon photonics", "400G", "800G"],
+  "power": ["data center load", "data center loads", "colocation", "power demand from data centers", "grid interconnection"],
+  "cooling": ["liquid cooling", "thermal management"],
+  "generic_tech_robustness": ["compute", "network"]
+}

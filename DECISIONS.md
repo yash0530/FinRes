@@ -218,3 +218,50 @@ Per ADR-004, **B0 ships**.
    - It is **not a rule**. These events are too rare in this universe to validate, so the buy rule stays ADR-005's, and the warning tells Yash to read the filing before buying.
 3. Headlines stay where they are: 10 Yahoo headlines inside Explain, where Qwen reads them.
 4. **Parked in SOMEDAY:** a Qwen headline red-flag scan of each month's buys, and a retail-attention (mention-spike) caution flag. Both need forward logging before they could ever count.
+
+## ADR-007: Pre-registered hindsight-free re-test (2026-09-29, committed BEFORE any 10-K is scored)
+**Why.** Every v1.0 lab number uses a universe picked in 2026, which is winner-biased. This test rebuilds, for each year, the set of companies that looked AI- or datacenter-exposed *at the time*, including companies that later died, and re-tests the shipped rule on it.
+
+**Universe for year Y** (applied at every month-end rebalance t in Y):
+- The company's latest 10-K was **filed in year Y−1**, by filing date, never by period date. Point-in-time means the filing date is before t.
+- Its SIC code, as reported in that filing, is in one of these groups:
+  - 3570–3579, 3612–3629, 3661–3669, 3670–3679, 3812, 3585, 7370–7379, 6798
+  - utilities and uranium: 4911, 4931, 4991, 1094
+- **Keyword score** is hits per 10,000 words, using `research/pit_universe/dictionary.json` (frozen, case-insensitive, word-boundary).
+  - Non-utility groups need a total of **≥ 5** across compute + ai + network + power + cooling.
+  - Utility/uranium groups need **≥ 2** from the power group alone.
+- **Size:** TTM revenue ≥ **$100M**, point-in-time via `edgar.fundamentals(facts, t)`.
+- **Price** ≥ **$3**, and ≥ 273 days of history (the existing eligibility rule).
+- Companies are keyed by CIK, which is never reused. Tickers are mapped with date ranges, so a recycled ticker is resolved by date overlap.
+
+**Prices.**
+- Yahoo covers every company that still trades.
+- For delisted companies, the **free Tiingo tier** is used as far as its quota allows. Priority goes to the names with the most eligible company-years.
+- Anything left unpriced is reported, and it gets a **delisting stress test**: a delisting for performance is booked at −30% (NYSE/AMEX) or −55% (Nasdaq) at the last known price (Shumway 1997/1999). Mergers get no penalty.
+
+**Tests** (same simulator and costs as ADR-004, $2,500/month):
+- **H1** (one run, no selection), 2010-01 → 2026-08:
+  - the shipped B0R + S2 rule
+  - EW of the PIT universe
+  - SMH DCA
+  - QQQ DCA
+
+  Reported three ways: priced names only, with the stress test applied, and against the 2026 hand-picked universe (for the bias estimate).
+- **H2 variants.** In-sample is 2010-01 → 2017-12. The out-of-sample run covers 2018-01 → 2026-08 and happens once, only for the best in-sample variant:
+  - **V1, Faber monthly.** Buyable while the month-end close is above the 10-month SMA of month-end closes. Sell after 2 consecutive month-ends below it. Otherwise the same as B0R.
+  - **V2, buffer.** Enter when close > SMA200 × 1.02 and SMA50 > SMA200. Exit after 2 month-ends with close < SMA200 × 0.98.
+  - **V3, FIP.** Start from the uptrend names. Keep the top third by 12-2 momentum, P(t−21)/P(t−252) − 1. From those, keep the lower half by `ID = sgn(PRET)·(%neg − %pos)` over the same daily window. Then least-held rotation, 10 names, ≤3 per group.
+- **A variant replaces B0R only if ALL of these hold:**
+  - it beats B0R in-sample AND out-of-sample
+  - it does not lose to EW(PIT) out-of-sample
+  - it passes the S&P 500 PIT co-gate (≥ EW over 2013–2026)
+  - V3 only: it is at or above the 60th percentile of 1,000 same-pool random portfolios
+- **If B0R's XIRR on H1 is below SMH DCA,** the app states it plainly and Yash decides (no automatic switch).
+- **Robustness,** reported but never used for selection: a "generic tech" dictionary (compute + network groups only).
+
+**Honesty (fixed text for the report).** The rule was chosen on data that overlaps 2019–2026. The PIT universe is a new *universe*, not new *time*. Vocabulary drifts ("big data" era, 2010–13), so the eligible counts for each year are reported, and years with fewer than 40 eligible names are unscored. The dictionary was written in 2026, so some hindsight remains in the choice of words. That is why it is frozen here before scoring, with a generic-tech robustness run.
+
+## ADR-008: Budgets for month 2 (2026-09-29)
+- The app stays at **≤ 1,500 LOC**. The new features (the `model.step` refactor, shadow ledgers and "what changed") are paid for by deleting dead code: `prices.suspicious_moves`, `signals.above200_at`, and `score(rng_signal)` moves to the lab.
+- **`lab/` rises to ≤ 700 LOC.** New research code lives in **`research/` (≤ 450 LOC)**. Neither is ever imported by the app.
+- **6th SQLite table `shadow(strategy, month, state_json)`** holds the forward shadow portfolios. That is one table for one clear purpose. The README scope table is updated.
