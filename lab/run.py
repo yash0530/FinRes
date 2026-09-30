@@ -235,13 +235,17 @@ def _write(path: Path, obj, force: bool) -> None:
 def sanity(ctx: dict, closes: pd.DataFrame, start: str, end: str) -> dict:
     """ADR-004 sanity (a) random-signal ranker percentile, (b) EWU's first 3 months vs an independent recomputation."""
     t0 = time.time()
-    ranked = bt.simulate(ctx, SANITY_CFG, start, end, "rank", np.random.default_rng(7), rng_signal=True)
-    n_path = dict(zip(ranked["ledger"]["date"], ranked["ledger"]["n_buys"]))
-    x = bt.ledger_xirr(ranked["ledger"])
-    rand = bt.random_xirrs(ctx, SANITY_CFG, start, end, n_path, N_RANDOM, seed=5)
-    pctl = bt.percentile(x, rand)
-    print(f"(a) random-signal ranker {name(SANITY_CFG)} XIRR {x:.2%}; percentile among {N_RANDOM} random "
-          f"portfolios = {pctl:.1f} (expect 35-65) -> {'PASS' if 35 <= pctl <= 65 else 'FAIL'} "
+    # ADR-004d: one random-signal ranker's percentile is itself ~Uniform(0,100) under the null, so a single draw
+    # fails a 35-65 band ~70% of the time. Use the MEAN percentile over 50 random-signal seeds (expect ~50).
+    pcts, xs = [], []
+    for seed in range(7, 57):
+        ranked = bt.simulate(ctx, SANITY_CFG, start, end, "rank", np.random.default_rng(seed), rng_signal=True)
+        n_path = dict(zip(ranked["ledger"]["date"], ranked["ledger"]["n_buys"]))
+        xs.append(bt.ledger_xirr(ranked["ledger"]))
+        pcts.append(bt.percentile(xs[-1], bt.random_xirrs(ctx, SANITY_CFG, start, end, n_path, 200, seed=seed)))
+    x, pctl = float(np.mean(xs)), float(np.mean(pcts))
+    print(f"(a) random-signal ranker {name(SANITY_CFG)}: mean XIRR {x:.2%}; mean percentile over 50 seeds "
+          f"(200 random portfolios each) = {pctl:.1f} (expect 35-65) -> {'PASS' if 35 <= pctl <= 65 else 'FAIL'} "
           f"[{time.time() - t0:.0f}s]")
     m3, mem = bt._months(ctx, start, end)[:3], ctx.get("members")
     ew = bt.simulate(ctx, {}, m3[0].strftime("%Y-%m"), m3[-1].strftime("%Y-%m"), "ew_all")
@@ -251,7 +255,7 @@ def sanity(ctx: dict, closes: pd.DataFrame, start: str, end: str) -> dict:
         h = closes.loc[:t]
         d = closes.index[closes.index > t][0]
         last = h.iloc[-5:].ffill().iloc[-1]
-        el = [k for k in closes.columns if h[k].notna().sum() >= 273 and last[k] >= 3 and (mem is None or k in mem[t])]
+        el = [k for k in closes.columns if h[k].notna().sum() >= 273 and last[k] > 0 and (mem is None or k in mem[t])]
         px = closes.ffill().loc[d]
         for k in el:
             bought = (2500 + cash) / len(el) * (1 - bt.COST) / px[k]
@@ -498,6 +502,12 @@ def phase_report(args) -> None:
                "", "### Coverage", *(cov.read_text().splitlines()[2:] if cov.exists() else []), "",
                "**Honesty (ADR-007).** " + re.search(r"\*\*Honesty \(fixed text for the report\)\.\*\* (.+)", adr)[1], ""]
     md += ["## Bug-fix log", "",
+           "- 2026-09-30 (ADR-004d): the $3 eligibility floor was applied to split-adjusted closes, which uses "
+           "future splits (lookahead) and wrongly excluded later winners (e.g. NVDA until ~2019). Floor removed; "
+           "sanity, IS, OOS, fidelity and H1 were all re-run. Pre-fix results remain in git history.",
+           "- 2026-09-30 (ADR-004d): sanity (a) used ONE random-signal ranker, whose percentile is ~Uniform(0,100) "
+           "under the null (a 35-65 band fails ~70% by chance). Now the mean percentile over 50 seeds. The EWU hand "
+           "recomputation still applied the old $3 floor; aligned.",
            "- Before the IS run: random portfolios changed to honor the ADR-004b group limit "
            "(`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.", "",
            "## Honesty",
