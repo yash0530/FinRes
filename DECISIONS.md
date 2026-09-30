@@ -324,3 +324,31 @@ An independent review (agy) found three bugs. The TL verified each against the d
 | Broader universe (R-A) | 29.5% | 36.5% | 29.7% |
 
 **The ADR-009 verdict stands:** without hindsight, the rule does not beat SMH, and it trails equal-weight hold. The review's claim that the fix lifts the rule to 32.5% did not reproduce: F1 alone gives 26.1%. That claim most likely came from its other suggestion (no trend sells in thin months), which drifts toward EW-hold.
+
+## ADR-010: Qwen-cleaned PIT universe (pre-registered 2026-09-30, before any classification)
+**Why.** The agy spot check found about 40% of keyword-eligible filings are boilerplate (see ADR-009).
+**Method.**
+- For each keyword-eligible 10-K (base and R-A), take the first ~1,500 words of Item 1 "Business".
+- Anonymize it: company name variants and tickers become "the Company".
+- Local Qwen 3.8 (reasoning "low", strict JSON schema, temperature 0.2) answers `{sells_into: bool, role: compute|semis_equipment|memory_storage|networking|datacenter_infra|power_energy|cloud|ai_software|none, confidence: low|medium|high}`, where `sells_into` means the Company *sells* products or services into AI, datacenters, accelerators, datacenter networking or storage, or datacenter power or cooling.
+- `universe_q` = keyword-eligible AND `sells_into` = true.
+**Validation first.** Measure agreement with the 30 hand-judged filings (`research/pit_universe/spot_check.md`: REAL/PARTIAL = true, BOILERPLATE = false).
+- If agreement is below 80%, `universe_q` is reported as unreliable and not used.
+- The prompt may be revised at most once, and only on the validation set, before the full run.
+**Use.** Re-run H1 and R-A on `universe_q`. The results are reported and never used for selection.
+**Known limit.** Qwen may recognize famous companies despite anonymization. It is asked about exposure, not success, but any leakage is noted.
+
+## ADR-011: One pre-registered decision, "buy uptrend, hold" (B0H) vs B0R (2026-09-30, before any run)
+**B0H** buys exactly like B0R: 10 uptrend names a month, least-held first, ≤3 per group. It **never sells on a trend break**; it sells only on the −35% catastrophic stop. The lab's same-month no-rebuy rule applies.
+**Switch rule.** B0H replaces B0R in the app only if **both** of these hold on **every** test set:
+- B0H's XIRR ≥ B0R's
+- B0H's max drawdown is no more than 10 pts worse than B0R's
+
+**The five test sets:**
+1. hand-picked universe, out-of-sample 2019-01 → 2026-08
+2. PIT priced, 2010-01 → 2026-08
+3. PIT with the stress test
+4. R-A priced
+5. S&P 500 PIT, 2013-01 → 2026-08
+
+If either condition fails on any set, B0R stays. Either way, B0H is added to the forward shadow portfolios. This single comparison is the only test in ADR-011.
