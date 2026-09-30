@@ -8,3 +8,4 @@ lab/data/
 *.db
 *.db-journal
 .DS_Store
+research/pit_universe/data/
