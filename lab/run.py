@@ -1,12 +1,15 @@
 """Lab runner: python -m lab.run {data|sanity|is|oos|report} [--force] [--smoke]. Pre-registered in ADR-004/004a."""
 import bisect
 import csv
+import gzip
 import json
 import multiprocessing as mp
 import pickle
+import re
 import subprocess
 import sys
 import time
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
@@ -31,6 +34,9 @@ GRID = [{"weights": w, "gate": g, "sell": s, "buy": b}
         for w in ["W1", "W2", "W3"] for g in ["G1", "G0"] for s in SELLS for b in ["Nvar", "N3"]]
 SANITY_CFG = {"weights": "W1", "gate": "G1", "sell": "S2", "buy": "Nvar"}
 N_RANDOM = 1000
+PIT = LAB.parent / "research" / "pit_universe"
+H1, REV_FLOOR, STRESS_PAD = ("2010-01", "2026-08"), 100e6, 280  # ADR-007
+RULE, EWN = "rule (ew_trend10)", "EW (ew_all)"
 
 
 def name(cfg: dict) -> str:
@@ -75,7 +81,11 @@ def sp_groups() -> dict:
 # ---------- data phase ----------
 
 def facts(t: str) -> dict | None:
-    """Cached companyfacts only (no network in simulation phases)."""
+    """Cached companyfacts only (no network in simulation phases). C{cik} -> the PIT research cache, by CIK."""
+    if t[:1] == "C" and t[1:].isdigit():
+        p = PIT / "data" / "facts" / f"{t[1:]}.json.gz"
+        f = json.loads(gzip.decompress(p.read_bytes())) if p.exists() else {}
+        return f if f.get("facts", {}).get("us-gaap") else None
     return edgar.companyfacts(t, max_age_days=float("inf")) if (edgar.EDGAR_DIR / f"{t}.json.gz").exists() else None
 
 
@@ -134,6 +144,39 @@ def fund_panel(tickers, months) -> dict:
     return {m: {t: rows[t][i] for t in tickers} for i, m in enumerate(months)}
 
 
+def pit_rows() -> list[dict]:
+    with open(PIT / "universe.csv", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def pit_members(by_year: dict, panel: dict, months) -> dict:
+    """{t: members}: eligible in year(t) AND point-in-time TTM revenue >= $100M at t (no facts -> not a member)."""
+    return {t: {k for k in by_year.get(t.year, ()) if ((panel[t].get(k) or {}).get("revenue_ttm") or 0) >= REV_FLOOR}
+            for t in months}
+
+
+def stress_closes(closes: pd.DataFrame, ctx: dict, rows: list[dict]) -> pd.DataFrame:
+    """ADR-007 delisting STRESS TEST: each unpriced PIT company = the daily EW index of the priced PIT members eligible
+    at the previous month-end, from STRESS_PAD trading days before its first eligible year (so the 273-day rule passes)
+    to its last date (tiingo_end, else last 10-K + 365 d), which is one -55% (Nasdaq) / -30% day; no prices after."""
+    ms = ctx["months"]
+    k = np.clip(np.searchsorted(pd.DatetimeIndex(ms), closes.index, side="left") - 1, 0, None)
+    rets = closes.pct_change(fill_method=None)
+    ew = pd.concat([rets.loc[k == j, ctx["elig"][ms[j]]].mean(axis=1) for j in np.unique(k)]).sort_index()
+    level, by, out = 100 * (1 + ew.fillna(0)).cumprod(), defaultdict(list), {}
+    for r in (r for r in rows if f"C{r['cik']}" not in closes):
+        by[r["cik"]].append(r)
+    for cik, rs in by.items():
+        ends = [r["tiingo_end"] for r in rs if r["tiingo_end"]]
+        end = pd.Timestamp(max(ends)) if ends else pd.Timestamp(max(r["last_10k"] for r in rs)) + pd.Timedelta(days=365)
+        i0 = max(level.index.searchsorted(pd.Timestamp(f"{min(int(r['year']) for r in rs)}-01-01")) - STRESS_PAD, 0)
+        s = level.iloc[i0:level.index.searchsorted(end, side="right")].copy()
+        if len(s) > 1 and end <= level.index[-1]:
+            s.iloc[-1] = s.iloc[-2] * (0.45 if any(r["exchange"] == "NASDAQ" for r in rs) else 0.70)
+        out[f"C{cik}"] = s
+    return pd.concat([closes, pd.DataFrame(out)], axis=1)
+
+
 def load_ctx(label: str, tickers=None, start=FULL[0], end=FULL[1], cache=True) -> dict:
     path = DATA / f"ctx_{label}.pkl"
     if cache and path.exists():
@@ -145,14 +188,24 @@ def load_ctx(label: str, tickers=None, start=FULL[0], end=FULL[1], cache=True) -
     if label == "sp500":
         groups, members = sp_groups(), sp_members_fn()
         tickers = sp_union()
+    if label.startswith("ai_pit"):  # ADR-007: prices as C{cik}; members = eligible in year(t) and revenue floor at t
+        rows, by_year = pit_rows(), defaultdict(set)
+        groups = {f"C{r['cik']}": r["group"] for r in rows}
+        for r in rows:
+            by_year[int(r["year"])].add(f"C{r['cik']}")
+        tickers = [t for (t,) in conn.execute("SELECT DISTINCT ticker FROM prices") if t in groups]
+        members = lambda t: mem[t]  # noqa: E731 - mem is computed below from the PIT fundamentals panel
     tickers = tickers or ai
     closes = prices.load_closes(conn, list(tickers))
+    if label == "ai_pit_stress":
+        closes = stress_closes(closes, load_ctx("ai_pit", start=start, end=end), rows)
     bench = prices.load_closes(conn, BENCH)
     months = [m for m in signals.month_ends(bench["SPY"].dropna().index) if start <= m.strftime("%Y-%m") <= end]
     panel = fund_panel(list(closes.columns), months)
+    mem = pit_members(by_year, panel, months) if label.startswith("ai_pit") else None
     ctx = bt.build_ctx(closes, bench["SPY"], groups, fund=panel.get, members=members, start=start, end=end,
-                       bench=bench)
-    bt.warm(ctx, ["W1", "W2", "W3"] if label != "sp500" else [])
+                       bench=bench) | {"tickers": list(closes.columns), "members": mem}
+    bt.warm(ctx, ["W1", "W2", "W3"] if label in ("ai", "smoke") else [])
     print(f"ctx {label}: {closes.shape[1]} tickers, {len(ctx['months'])} months ({time.time() - t0:.0f}s)")
     if cache:
         path.write_bytes(pickle.dumps(ctx))
@@ -179,9 +232,8 @@ def _write(path: Path, obj, force: bool) -> None:
 
 # ---------- phases ----------
 
-def phase_sanity(args) -> None:
-    ctx = load_ctx("ai")
-    start, end = FULL
+def sanity(ctx: dict, closes: pd.DataFrame, start: str, end: str) -> dict:
+    """ADR-004 sanity (a) random-signal ranker percentile, (b) EWU's first 3 months vs an independent recomputation."""
     t0 = time.time()
     ranked = bt.simulate(ctx, SANITY_CFG, start, end, "rank", np.random.default_rng(7), rng_signal=True)
     n_path = dict(zip(ranked["ledger"]["date"], ranked["ledger"]["n_buys"]))
@@ -191,21 +243,22 @@ def phase_sanity(args) -> None:
     print(f"(a) random-signal ranker {name(SANITY_CFG)} XIRR {x:.2%}; percentile among {N_RANDOM} random "
           f"portfolios = {pctl:.1f} (expect 35-65) -> {'PASS' if 35 <= pctl <= 65 else 'FAIL'} "
           f"[{time.time() - t0:.0f}s]")
-    ew = bt.simulate(ctx, {}, "2013-01", "2013-03", "ew_all")
-    closes = prices.load_closes(db.connect(LAB_DB), ai_universe()[0])
+    m3, mem = bt._months(ctx, start, end)[:3], ctx.get("members")
+    ew = bt.simulate(ctx, {}, m3[0].strftime("%Y-%m"), m3[-1].strftime("%Y-%m"), "ew_all")
     table, check = {}, []
     held, cash = {}, 0.0
-    for t in bt._months(ctx, "2013-01", "2013-03"):  # independent recomputation from raw closes
+    for t in m3:  # independent recomputation from raw closes (PIT: membership is an input)
         h = closes.loc[:t]
         d = closes.index[closes.index > t][0]
         last = h.iloc[-5:].ffill().iloc[-1]
-        el = [k for k in closes.columns if h[k].notna().sum() >= 273 and last[k] >= 3]
+        el = [k for k in closes.columns if h[k].notna().sum() >= 273 and last[k] >= 3 and (mem is None or k in mem[t])]
         px = closes.ffill().loc[d]
         for k in el:
             bought = (2500 + cash) / len(el) * (1 - bt.COST) / px[k]
             held[k] = held.get(k, 0) + bought
             table.setdefault(k, []).append(f"{d:%Y-%m-%d} ${2500 / len(el):.2f} @ {px[k]:.4f} = {bought:.6f} sh")
-        check.append(sum(s * px[k] for k, s in held.items()))
+        cash = 0.0 if el else cash + 2500  # no eligible name: the month's money is carried as cash
+        check.append(sum(s * px[k] for k, s in held.items()) + cash)
     print("(b) EWU first 3 months: ticker | fill date, $ per name @ fill close = shares bought (15 bps cost)")
     for k in sorted(table):
         print(f"    {k:6s} | " + " | ".join(table[k]))
@@ -213,12 +266,17 @@ def phase_sanity(args) -> None:
     ok_b = np.allclose(got, check, rtol=1e-9)
     print(f"    ledger values {np.round(got, 2).tolist()} vs recomputation {np.round(check, 2).tolist()} -> "
           f"{'PASS' if ok_b else 'FAIL'}")
+    return {"random_signal_xirr": x, "random_signal_percentile": pctl, "pass_a": 35 <= pctl <= 65,
+            "ewu_values": got, "ewu_recomputed": check, "pass_b": bool(ok_b)}
+
+
+def phase_sanity(args) -> None:
+    out = sanity(load_ctx("ai"), prices.load_closes(db.connect(LAB_DB), ai_universe()[0]), *FULL)
     tests = ["tests/test_lab.py", "tests/test_signals.py", "tests/test_edgar_pit.py"]
     r = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests, "-k", "lookahead or filed_on_or_after"],
                        capture_output=True, text=True, cwd=LAB.parent)
     print("(c) lookahead tests:", r.stdout.strip().splitlines()[-1])
-    out = {"random_signal_xirr": x, "random_signal_percentile": pctl, "pass_a": 35 <= pctl <= 65,
-           "ewu_values": got, "ewu_recomputed": check, "pass_b": bool(ok_b), "pass_c": r.returncode == 0}
+    out["pass_c"] = r.returncode == 0
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / "sanity.json").write_text(json.dumps(out, indent=1))
 
@@ -308,6 +366,38 @@ def phase_fidelity(args) -> None:
     _write(RESULTS / "fidelity.json", out, True)
 
 
+def h1_block(ctx: dict, dca: bool = True) -> dict:
+    a, b = H1
+    led = {RULE: bt.simulate(ctx, {}, a, b, "ew_trend10")["ledger"], EWN: bt.simulate(ctx, {}, a, b, "ew_all")["ledger"]}
+    led |= {f"DCA {k}": bt.dca(ctx, k, a, b) for k in ("SMH", "QQQ") if dca}
+    return {"rows": [row(k, {"ledger": v}, led[EWN]) for k, v in led.items()],
+            "yearly": {k: bt.yearly(v) for k, v in led.items()}, "eligible_by_year": eligible_by_year(ctx, a, b)}
+
+
+def phase_h1(args) -> None:
+    """ADR-007 H1: one run, no selection. Sanity on ai_pit first; the run does not count if it fails."""
+    path = RESULTS / "h1.json"
+    if path.exists() and not args.force:
+        sys.exit(f"{path} exists; refusing to overwrite without --force")
+    pit = load_ctx("ai_pit", start=H1[0], end=H1[1])
+    closes = prices.load_closes(db.connect(LAB_DB), pit["tickers"])
+    first = next(t for t in pit["months"] if len(pit["elig"][t]) >= 10).strftime("%Y-%m")  # early months ~empty
+    out = {"period": H1, "sanity": sanity(pit, closes, *H1), "sanity_from": [first, sanity(pit, closes, first, H1[1])]}
+    if not all(s["pass_a"] and s["pass_b"] for s in (out["sanity"], out["sanity_from"][1])):
+        _write(path, out | {"status": "SANITY FAILED: H1 not counted"}, True)
+        sys.exit("sanity failed on ai_pit; H1 not counted")
+    stress = load_ctx("ai_pit_stress", start=H1[0], end=H1[1])
+    out |= {"ai_pit": h1_block(pit), "ai_pit_stress": h1_block(stress), "stress_names": len(stress["tickers"]) - len(
+        pit["tickers"]), "ai_hand": h1_block(load_ctx("ai_2010", ai_universe()[0], *H1), dca=False)}
+    x = lambda k, n: next(r["xirr"] for r in out[k]["rows"] if r["name"] == n)  # noqa: E731
+    out["headline"] = {"rule_minus_smh_priced": x("ai_pit", RULE) - x("ai_pit", "DCA SMH"),
+                       "rule_minus_smh_stressed": x("ai_pit_stress", RULE) - x("ai_pit_stress", "DCA SMH"),
+                       "rule_minus_ew_pit": x("ai_pit", RULE) - x("ai_pit", EWN),
+                       "bias_hand_minus_pit": x("ai_hand", RULE) - x("ai_pit", RULE)}
+    print(json.dumps(out["headline"], indent=1))
+    _write(path, out, True)
+
+
 # ---------- report ----------
 
 def _p(x) -> str:
@@ -378,6 +468,35 @@ def phase_report(args) -> None:
                f"The shipped rule beat the equal-weight universe in {wins} of {len(years)} calendar years.",
                "| Year | " + " | ".join(names) + " |", "|---" * (len(names) + 1) + "|",
                *[f"| {k} | " + " | ".join(f"{y[n][k]:+.1%}" for n in names) + " |" for k in years], ""]
+    h1 = load("h1.json")
+    if h1 and "headline" in h1:
+        hl, s, cov = h1["headline"], h1["sanity"], PIT / "coverage.md"
+        adr = (LAB.parent / "DECISIONS.md").read_text()
+        md += ["## Hindsight-free re-test (ADR-007)", f"H1, one run, no selection, {h1['period'][0]}→{h1['period'][1]}: "
+               "the shipped rule (B0R + S2, `ew_trend10`) on a universe rebuilt each year from the 10-Ks filed the year "
+               "before (SIC + frozen dictionary), with PIT revenue ≥ $100M. Sanity on the PIT universe: random-signal "
+               f"percentile {s['random_signal_percentile']:.1f}, EW first 3 months {'pass' if s['pass_b'] else 'FAIL'}; "
+               f"repeated from {h1['sanity_from'][0]} (first month with ≥ 10 eligible names): percentile "
+               f"{h1['sanity_from'][1]['random_signal_percentile']:.1f}, EW first 3 months "
+               f"{'pass' if h1['sanity_from'][1]['pass_b'] else 'FAIL'}.", ""]
+        for k, title in (("ai_pit", "PIT universe, priced names only"), ("ai_pit_stress", f"STRESS TEST: PIT + "
+                         f"{h1['stress_names']} unpriced names as EW-index clones ending in a −55% (Nasdaq) / −30% day"),
+                         ("ai_hand", "2026 hand-picked AI universe, same period (bias estimate)")):
+            md += [f"### {title}", *_table(h1[k]["rows"]), ""]
+        md += ["### Headline (XIRR differences)", *[f"- {k}: {v:+.1%}" for k, v in hl.items()],
+               "- **The rule's XIRR on the PIT universe was " + ("BELOW monthly SMH DCA. Per ADR-007 the app says so "
+               "plainly and Yash decides; there is no automatic switch.**" if hl["rule_minus_smh_priced"] < 0 else
+               "at or above monthly SMH DCA.**"), ""]
+        y = h1["ai_pit"]["yearly"]; names = list(y)  # noqa: E702
+        md += ["### Year by year, PIT priced (time-weighted)", "| Year | " + " | ".join(names) + " |",
+               "|---" * (len(names) + 1) + "|", *[f"| {k} | " + " | ".join(f"{y[n][k]:+.1%}" for n in names) + " |"
+                                                 for k in y[names[0]]], "",
+               "### Eligible names per month-end (min / median / max; < 40 = unscored)",
+               "| Year | PIT priced | PIT stress | hand-picked |", "|---|---|---|---|",
+               *[f"| {k} | {v} | {h1['ai_pit_stress']['eligible_by_year'].get(k)} | "
+                 f"{h1['ai_hand']['eligible_by_year'].get(k)} |" for k, v in h1["ai_pit"]["eligible_by_year"].items()],
+               "", "### Coverage", *(cov.read_text().splitlines()[2:] if cov.exists() else []), "",
+               "**Honesty (ADR-007).** " + re.search(r"\*\*Honesty \(fixed text for the report\)\.\*\* (.+)", adr)[1], ""]
     md += ["## Bug-fix log", "",
            "- Before the IS run: random portfolios changed to honor the ADR-004b group limit "
            "(`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.", "",
@@ -392,11 +511,12 @@ def phase_report(args) -> None:
 def main(argv=None) -> None:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m lab.run")
-    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "report"])
+    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "report"])
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="is only: 60 AI tickers, 2015-2016, writes to /tmp")
     args = ap.parse_args(argv)
-    {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "fidelity": phase_fidelity, "report": phase_report}[
+    {"data": phase_data, "sanity": phase_sanity, "is": phase_is, "oos": phase_oos, "fidelity": phase_fidelity, "h1": phase_h1,
+     "report": phase_report}[
         args.phase](args)
 
 

@@ -131,6 +131,106 @@ The shipped rule beat the equal-weight universe in 8 of 14 calendar years.
 | 2025 | +31.3% | +51.2% | +53.0% |
 | 2026 | +7.2% | +29.6% | +46.1% |
 
+## Hindsight-free re-test (ADR-007)
+H1, one run, no selection, 2010-01→2026-08: the shipped rule (B0R + S2, `ew_trend10`) on a universe rebuilt each year from the 10-Ks filed the year before (SIC + frozen dictionary), with PIT revenue ≥ $100M. Sanity on the PIT universe: random-signal percentile 41.0, EW first 3 months pass; repeated from 2014-01 (first month with ≥ 10 eligible names): percentile 53.3, EW first 3 months pass.
+
+### PIT universe, priced names only
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| rule (ew_trend10) | 21.7% | 13.2% | 26.7% | -54.8% | 0.59 | 0.29 | -0.85 |
+| EW (ew_all) | 22.1% | 16.2% | 28.3% | -42.8% | 0.67 | 0.02 | nan |
+| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | 2.07 |
+| DCA QQQ | 19.5% | 19.4% | 18.5% | -33.7% | 1.06 | 0.00 | 0.13 |
+
+### STRESS TEST: PIT + 103 unpriced names as EW-index clones ending in a −55% (Nasdaq) / −30% day
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| rule (ew_trend10) | 19.3% | 12.2% | 25.6% | -55.6% | 0.58 | 0.27 | -0.01 |
+| EW (ew_all) | 17.1% | 12.6% | 23.9% | -41.4% | 0.62 | 0.02 | nan |
+| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | 3.11 |
+| DCA QQQ | 19.5% | 19.4% | 18.5% | -33.7% | 1.06 | 0.00 | 1.28 |
+
+### 2026 hand-picked AI universe, same period (bias estimate)
+| Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
+|---|---|---|---|---|---|---|---|
+| rule (ew_trend10) | 28.3% | 25.1% | 28.4% | -33.0% | 0.93 | 0.14 | 1.55 |
+| EW (ew_all) | 23.5% | 20.9% | 23.0% | -31.4% | 0.94 | 0.02 | nan |
+
+### Headline (XIRR differences)
+- rule_minus_smh_priced: -8.0%
+- rule_minus_smh_stressed: -10.4%
+- rule_minus_ew_pit: -0.4%
+- bias_hand_minus_pit: +6.6%
+- **The rule's XIRR on the PIT universe was BELOW monthly SMH DCA. Per ADR-007 the app says so plainly and Yash decides; there is no automatic switch.**
+
+### Year by year, PIT priced (time-weighted)
+| Year | rule (ew_trend10) | EW (ew_all) | DCA SMH | DCA QQQ |
+|---|---|---|---|---|
+| 2010 | -7.5% | -6.7% | +29.2% | +29.0% |
+| 2011 | -36.3% | -17.3% | -5.6% | +3.8% |
+| 2012 | -13.0% | -2.5% | +11.3% | +19.6% |
+| 2013 | +29.7% | +29.8% | +26.9% | +31.4% |
+| 2014 | -14.2% | +5.8% | +31.3% | +19.8% |
+| 2015 | -2.0% | -9.6% | -1.1% | +7.4% |
+| 2016 | +7.6% | +35.7% | +37.2% | +10.4% |
+| 2017 | +41.6% | +25.5% | +41.9% | +33.8% |
+| 2018 | +17.6% | +7.1% | -10.7% | -1.5% |
+| 2019 | +50.8% | +48.6% | +67.0% | +40.7% |
+| 2020 | +79.4% | +43.3% | +52.3% | +43.9% |
+| 2021 | +25.4% | +42.5% | +45.0% | +30.5% |
+| 2022 | -27.6% | -40.1% | -35.5% | -33.7% |
+| 2023 | +35.7% | +58.7% | +68.8% | +53.3% |
+| 2024 | +64.9% | +15.8% | +45.5% | +27.5% |
+| 2025 | -9.9% | +34.3% | +53.0% | +20.8% |
+| 2026 | +56.7% | +58.5% | +46.1% | +15.7% |
+
+### Eligible names per month-end (min / median / max; < 40 = unscored)
+| Year | PIT priced | PIT stress | hand-picked |
+|---|---|---|---|
+| 2010 | [0, 0, 1] | [0, 0, 1] | [74, 74, 75] |
+| 2011 | [1, 3, 3] | [2, 7, 8] | [76, 78, 79] |
+| 2012 | [4, 5, 7] | [10, 15, 18] | [77, 79, 81] |
+| 2013 | [5, 6, 6] | [15, 18, 18] | [79, 81, 86] |
+| 2014 | [12, 12, 12] | [25, 26, 26] | [86, 87, 88] |
+| 2015 | [11, 12, 14] | [28, 29, 31] | [85, 86, 88] |
+| 2016 | [21, 24, 24] | [35, 39, 39] | [86, 88, 91] |
+| 2017 | [21, 22, 22] | [36, 36, 37] | [91, 92, 94] |
+| 2018 | [17, 18, 18] | [34, 36, 39] | [94, 95, 96] |
+| 2019 | [21, 26, 26] | [40, 44, 46] | [96, 99, 102] |
+| 2020 | [29, 29, 30] | [47, 47, 50] | [100, 102, 108] |
+| 2021 | [32, 33, 33] | [46, 49, 51] | [108, 110, 116] |
+| 2022 | [37, 38, 40] | [43, 47, 51] | [116, 118, 120] |
+| 2023 | [42, 43, 44] | [50, 51, 53] | [120, 124, 126] |
+| 2024 | [49, 50, 52] | [54, 55, 57] | [124, 127, 131] |
+| 2025 | [74, 75, 75] | [81, 81, 83] | [128, 134, 136] |
+| 2026 | [94, 95, 95] | [97, 99, 101] | [137, 138, 140] |
+
+### Coverage
+`priced` = prices as `C{cik}` in lab/data/lab.db inside the year; unpriced company-years enter only the delisting stress test. Duplicate CIKs on one ticker are dropped. The $100M floor is applied per month.
+
+| year | eligible | mapped | listed | delisted | unmapped | dup dropped | priced | unpriced | priced share |
+|---|---|---|---|---|---|---|---|---|---|
+| 2010 | 15 | 10 | 4 | 6 | 5 | 0 | 5 | 10 | 33% |
+| 2011 | 24 | 19 | 7 | 12 | 5 | 0 | 7 | 17 | 29% |
+| 2012 | 30 | 25 | 9 | 16 | 5 | 0 | 11 | 19 | 37% |
+| 2013 | 33 | 28 | 9 | 19 | 5 | 0 | 11 | 22 | 33% |
+| 2014 | 42 | 38 | 14 | 24 | 4 | 0 | 16 | 26 | 38% |
+| 2015 | 54 | 48 | 17 | 31 | 6 | 0 | 18 | 36 | 33% |
+| 2016 | 58 | 54 | 28 | 26 | 4 | 0 | 32 | 26 | 55% |
+| 2017 | 57 | 50 | 27 | 23 | 7 | 0 | 29 | 28 | 51% |
+| 2018 | 51 | 43 | 19 | 24 | 8 | 0 | 21 | 30 | 41% |
+| 2019 | 57 | 51 | 27 | 24 | 6 | 0 | 29 | 28 | 51% |
+| 2020 | 66 | 57 | 36 | 21 | 9 | 0 | 37 | 29 | 56% |
+| 2021 | 64 | 59 | 39 | 20 | 5 | 0 | 40 | 24 | 62% |
+| 2022 | 65 | 58 | 46 | 12 | 7 | 0 | 46 | 19 | 71% |
+| 2023 | 71 | 63 | 54 | 9 | 8 | 0 | 55 | 16 | 77% |
+| 2024 | 78 | 68 | 64 | 4 | 10 | 0 | 64 | 14 | 82% |
+| 2025 | 103 | 94 | 89 | 5 | 9 | 0 | 88 | 15 | 85% |
+| 2026 | 129 | 113 | 112 | 1 | 16 | 0 | 111 | 18 | 86% |
+| all (after dups) | 997 | | | | | | 620 | 377 | 62% |
+
+**Honesty (ADR-007).** The rule was chosen on data that overlaps 2019–2026. The PIT universe is a new *universe*, not new *time*. Vocabulary drifts ("big data" era, 2010–13), so the eligible counts for each year are reported, and years with fewer than 40 eligible names are unscored. The dictionary was written in 2026, so some hindsight remains in the choice of words. That is why it is frozen here before scoring, with a generic-tech robustness run.
+
 ## Bug-fix log
 
 - Before the IS run: random portfolios changed to honor the ADR-004b group limit (`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.

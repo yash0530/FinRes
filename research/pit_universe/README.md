@@ -17,3 +17,21 @@ Never imported by the app.
 - Word count = whitespace tokens after stripping tags, `<head>`, `<script>`, `<style>`, `<ix:header>` and HTML entities. Hits are case-insensitive, `\b`-bounded, any whitespace between phrase words; each dictionary term is counted separately.
 - `eligible_text`: SIC 4911/4931/4991/1094 → `per10k_power ≥ 2`; other groups → `per10k_total ≥ 5`. `per10k_generic` (compute + network) is the robustness dictionary.
 - `data/` is git-ignored.
+
+## build.py — universe, tickers, facts, prices (ADR-007 H1)
+
+```bash
+.venv/bin/python -m research.pit_universe.build universe  # scores.csv -> data/eligible.csv (year, cik, name, sic, symbols_from_filing, filed)
+.venv/bin/python -m research.pit_universe.build map       # -> universe.csv, coverage.md, data/unmapped.csv (review list)
+.venv/bin/python -m research.pit_universe.build facts     # companyfacts per CIK -> data/facts/{cik}.json.gz (404 -> .404 marker)
+.venv/bin/python -m research.pit_universe.build prices    # -> lab/data/lab.db prices as C{cik}; Tiingo if TIINGO_API_KEY is set
+.venv/bin/python -m research.pit_universe.build report    # rewrite coverage.md incl. priced/unpriced
+```
+
+- **Year assignment.** Year Y uses the CIK's *latest* 10-K filed in Y−1 (filing date); it counts iff that filing has `in_group=1` and `eligible_text=1`. Years 2010–2026.
+- **Tickers.** Candidates in order: symbols printed in that year's 10-K, symbols from the company's other 10-Ks (closest year first), current `tickers` from its submissions JSON, then each with a `Q` suffix (Tiingo renames bankrupt names, INAP → INAPQ). The first candidate with a Tiingo `supported_tickers` row (NYSE/NASDAQ/NYSE MKT/AMEX/NYSE ARCA, Stock, USD) overlapping the year wins; if a recycled ticker has several such rows, the row with the best date overlap (Jaccard) with the company's filing span (first 10-K → last 10-K + 365 d) wins. `status`: listed (Tiingo endDate ≥ 2026-09-01), delisted, unmapped.
+- **Duplicates.** Several CIKs on the same Tiingo row in one year (utility subsidiaries in a combined 10-K, holding + operating company) keep one CIK: the one whose submissions list the ticker, then the earliest candidate, then the lowest CIK. The others are dropped and listed in `data/unmapped.csv` (`reason=duplicate ticker`).
+- **Groups** from the filing SIC: semis {3670–3679, 3570–3579 except 3576}, network {3576, 3661–3669}, cloud {7370–7379}, infra {3612–3629, 3585, 3812, 4911, 4931, 4991, 6798, 1094}.
+- **Facts** are fetched for every eligible CIK, mapped or not (the stress test applies the revenue floor to unpriced names too). No us-gaap facts (404/IFRS) → the $100M floor can't be applied → never a member.
+- **Prices** are stored as `C{cik}` so a recycled ticker can't collide. Listed → Yahoo `period="max"`, kept from `tiingo_start`. Delisted → Tiingo `adjClose` (≤ 50/h, ≤ 1,000/day, resumable via `data/tiingo_done.csv`, most eligible years first, stops cleanly on the monthly-quota error). No `TIINGO_API_KEY` → Tiingo is skipped and every delisted CIK is listed in `data/unpriced.csv`. Yahoo has no delisted tickers.
+- The lab (`python -m lab.run h1`) reads `universe.csv`, `data/facts/` and the `C{cik}` prices; unpriced company-years enter only the delisting **stress test** (`lab/run.py stress_closes`).
