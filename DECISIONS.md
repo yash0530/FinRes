@@ -352,3 +352,4 @@ An independent review (agy) found three bugs. The TL verified each against the d
 5. S&P 500 PIT, 2013-01 → 2026-08
 
 If either condition fails on any set, B0R stays. Either way, B0H is added to the forward shadow portfolios. This single comparison is the only test in ADR-011.
+- *Addendum (2026-09-30, v2):* the research budgets rise to **lab ≤ 950** and **research ≤ 750**, for the ADR-010 classifier, the Qwen-cleaned H1, and the yearly universe review. The **app stays ≤ 1,500**. Both stay research code that the app never imports.
