@@ -59,9 +59,7 @@ def reason(row) -> str:
         n = row.get("n_days")
         if not _ok(row.get("close")):
             return f"{INSUFFICIENT}: no recent price"
-        if _ok(n) and n < 273:
-            return f"{INSUFFICIENT}: {int(n)} trading days of history (need 273)"
-        return f"{INSUFFICIENT}: price below $3"
+        return f"{INSUFFICIENT}: {int(n) if _ok(n) else 0} trading days of history (need 273)"
     g = row.get
     fmt = [("Momentum", g("mom"), [("12-1m {:+.0%}", g("ret_12_1")), ("{:.0%} from high", g("dd_52w"))]),
            ("Quality", g("qual"), [("GP/A {:.2f}", g("gp_assets")), ("rev {:+.0%}", g("rev_growth"))]),

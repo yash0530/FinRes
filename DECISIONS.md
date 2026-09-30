@@ -266,3 +266,15 @@ Per ADR-004, **B0 ships**.
 - **`lab/` rises to ≤ 700 LOC.** New research code lives in **`research/` (≤ 450 LOC)**. Neither is ever imported by the app.
 - **6th SQLite table `shadow(strategy, month, state_json)`** holds the forward shadow portfolios. That is one table for one clear purpose. The README scope table is updated.
 - *Addendum (2026-09-29, Yash's request):* a **Guide** tab (`/guide`) renders `USER_GUIDE.md` inside the app, so the guide has a single source. It is documentation, not a second app page. It adds one dependency (`Markdown`) and about 6 lines of Python.
+
+## ADR-004d: Bug fix, no price floor on split-adjusted closes (2026-09-30)
+**Bug.** Eligibility required close ≥ $3, but the closes are **split-adjusted**, and adjustment uses splits that happen *after* t. NVDA's adjusted 2013 close is about $0.35, so NVDA (and AVGO, LRCX, KLAC, …) were wrongly ineligible for years. This is lookahead bias that systematically excluded future winners. It affected the v1 lab (ADR-004/005) and the first H1 run.
+
+**Fix.** Remove the floor (`close > 0`). The revenue floor (ADR-007) and index membership already exclude penny stocks. Live prices are unaffected, since today's close equals the adjusted close.
+
+**Protocol.** ADR-004 allows bug fixes if they are logged. Sanity, IS, OOS, fidelity and H1 were **all re-run** under the unchanged decision rules. Pre-fix results remain in git history (commit before this one) and are summarized in `lab/REPORT.md`'s bug-fix log. Whatever the re-run says ships, even if the ADR-005 verdict changes.
+
+## ADR-007a: Robustness runs for H1 (declared 2026-09-30, before running them)
+The frozen keyword threshold (≥ 5 per 10k words) made the point-in-time universe thin: fewer than 40 eligible names in most months, so the rule mostly behaves like equal weight. H1 alone therefore can't separate the rule from EW. These runs are **reported, never used for selection**:
+- **R-A:** same dictionary, threshold ≥ 2 per 10k words.
+- **R-B:** "generic tech" dictionary (compute + network groups only), threshold ≥ 5.

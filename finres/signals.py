@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 MIN_DAYS = 273
-MIN_PRICE = 3.0
 STALE_ROWS = 5  # a close must exist within the last 5 rows <= t
 TAIL = 273  # rows needed for every window below (252 + 21)
 
@@ -53,7 +52,8 @@ def factors_at(closes: pd.DataFrame, t: pd.Timestamp) -> pd.DataFrame:
         "hi52": hi52, "dd_52w": hi52 - 1, "sma50": sma50, "sma200": sma200,
         "above200": above200, "trend": trend,
     })
-    out["eligible"] = (out["n_days"] >= MIN_DAYS) & (out["close"] >= MIN_PRICE) & out["close"].notna()
+    # ADR-004d: no price floor. Closes are split-adjusted, so a floor would use future splits (lookahead).
+    out["eligible"] = (out["n_days"] >= MIN_DAYS) & (out["close"] > 0) & out["close"].notna()
     out.index.name = "ticker"
     return out
 

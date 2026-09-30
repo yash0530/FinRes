@@ -76,7 +76,7 @@ def test_eligibility():
     f = signals.factors_at(closes, idx[-1])
     assert f.loc["IPO272", "n_days"] == 272 and not f.loc["IPO272", "eligible"]
     assert f.loc["IPO273", "n_days"] == 273 and f.loc["IPO273", "eligible"]
-    assert not f.loc["CHEAP", "eligible"]
+    assert f.loc["CHEAP", "eligible"]  # ADR-004d: no price floor on split-adjusted closes (lookahead)
     assert math.isnan(f.loc["STALE", "close"]) and not f.loc["STALE", "eligible"]
     assert f.loc["GAP", "close"] == closes["OK"].iloc[395] and f.loc["GAP", "eligible"]
     assert f.loc["OK", "eligible"]
