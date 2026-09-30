@@ -6,15 +6,8 @@ WEIGHTS = {"W1": (0.8, 0.2), "W2": (0.6, 0.4), "W3": (1.0, 0.0)}
 REV_WEIGHT = 0.15
 BUY_ZONE = 0.85
 HOLD_FLOOR = 0.70
-MAX_N = 10
-CAP_POS = 0.10
-CAP_GROUP = 0.30
-CAP_SPEC_POS = 0.03
-CAP_SPEC_TOTAL = 0.10
-CAPS_FROM = 25_000
 STOP = 0.65
 BRAKE_BREADTH = 0.40
-BRAKE_N = 2
 MAX_PER_GROUP = 3  # ADR-004b: at most 3 of one month's buys from one cap group
 SHIPPED = {"weights": "W2", "gate": "G1", "sell": "S2", "buy": "B0R"}  # ADR-005: lab verdict
 ROTATE_N = 10  # B0R: 10 uptrend names per month, least-held first
@@ -81,8 +74,7 @@ def reason(row) -> str:
     return " · ".join([text for _, text in clauses] + [trend])
 
 
-def score(fac: pd.DataFrame, weights: str = "W1", use_revisions: bool = False,
-          rng_signal: pd.Series | None = None) -> pd.DataFrame:
+def score(fac: pd.DataFrame, weights: str = "W1", use_revisions: bool = False) -> pd.DataFrame:
     """Composite percentile, grades, label and reason per ticker; returned in tie-break order."""
     df = fac.copy()
     for c in NUMERIC:
@@ -98,8 +90,6 @@ def score(fac: pd.DataFrame, weights: str = "W1", use_revisions: bool = False,
     raw = (w_mom * mom + w_qual * qual).where(qual.notna(), mom)
     if use_revisions:
         raw = ((1 - REV_WEIGHT) * raw + REV_WEIGHT * rev).where(rev.notna(), raw)
-    if rng_signal is not None:
-        raw = rng_signal.reindex(e.index).astype(float)
     for name, s in (("mom", mom), ("qual", qual), ("rev", rev), ("raw", raw), ("composite", pct(raw))):
         df[name] = s.reindex(df.index).astype(float)
     for name in ("mom", "qual", "rev", "composite"):
@@ -121,34 +111,6 @@ def regime(fac: pd.DataFrame, spy_close: float, spy_sma200: float) -> dict:
             "brake": (not spy_above) or breadth is None or breadth < BRAKE_BREADTH}
 
 
-def capped(tickers, scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str]) -> set[str]:
-    """Names that may receive no new money (caps apply only once the portfolio is >= CAPS_FROM)."""
-    port = sum(positions.values())
-    if port < CAPS_FROM:
-        return set()
-    spec = scored["speculative"].to_dict() if "speculative" in scored else {}
-    group = lambda t: groups.get(t) or ("_own", t)  # noqa: E731 - unknown group = own group
-    by_group: dict = {}
-    for t, v in positions.items():
-        by_group[group(t)] = by_group.get(group(t), 0.0) + v
-    spec_total = sum(v for t, v in positions.items() if spec.get(t, False))
-    out = set()
-    for t in tickers:
-        pos = positions.get(t, 0.0)
-        if pos >= CAP_POS * port or by_group.get(group(t), 0.0) >= CAP_GROUP * port or (
-                spec.get(t, False) and (pos >= CAP_SPEC_POS * port or spec_total >= CAP_SPEC_TOTAL * port)):
-            out.add(t)
-    return out
-
-
-def buy_pool(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict) -> pd.DataFrame:
-    """Eligible, scored names (Trend-passing under G1), in tie-break order, minus capped names."""
-    df = scored[scored["eligible"].astype(bool) & scored["composite"].notna()]
-    if cfg["gate"] == "G1":
-        df = df[df["trend"].astype(bool)]
-    return order(df[~df.index.isin(capped(df.index, scored, positions, groups))])
-
-
 def take_by_group(tickers: list, groups: dict[str, str], limit: int) -> list:
     """First `limit` tickers in the given order, skipping any whose group already has MAX_PER_GROUP (ADR-004b)."""
     keep, per_group = [], {}
@@ -164,28 +126,17 @@ def take_by_group(tickers: list, groups: dict[str, str], limit: int) -> list:
 
 def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict,
              brake: bool, budget: float) -> list[dict]:
-    """This month's buys, split equally; [] means carry the cash."""
-    if cfg["buy"] == "B0R":  # ADR-005 practical B0: uptrend names, least-held first; no caps, no brake
-        up = scored[scored["eligible"].astype(bool) & scored["composite"].notna() & scored["trend"].astype(bool)]
-        up = up.assign(_held=[positions.get(t, 0.0) for t in up.index], _t=up.index.astype(str))
-        up = up.sort_values(["_held", "composite", "_t"], ascending=[True, False, True])
-        pick = up.loc[take_by_group(list(up.index), groups, ROTATE_N)]
-        n = len(pick)
-        return [{"ticker": t, "dollars": budget / n, "composite": float(r["composite"]), "reason": r.get("reason"),
-                 "held": float(r["_held"])} for t, r in pick.iterrows()]
-    pool = buy_pool(scored, positions, groups, cfg)
-    if cfg["buy"] == "Nvar":
-        pool, limit = pool[pool["composite"] >= BUY_ZONE], MAX_N
-    elif cfg["buy"] == "N3":
-        limit = 3
-    else:
+    """This month's buys under B0R (ADR-005): uptrend names, least-held first, split equally; no caps, no brake.
+    [] means carry the cash. The lab's ranked rules (Nvar/N3, caps, brake) live in lab/backtest.py."""
+    if cfg["buy"] != "B0R":
         raise ValueError(f"unknown buy rule {cfg['buy']!r}")
-    pick = pool.loc[take_by_group(list(pool.index), groups, limit)]
-    if brake:
-        pick = pick.head(BRAKE_N)
+    up = scored[scored["eligible"].astype(bool) & scored["composite"].notna() & scored["trend"].astype(bool)]
+    up = up.assign(_held=[positions.get(t, 0.0) for t in up.index], _t=up.index.astype(str))
+    up = up.sort_values(["_held", "composite", "_t"], ascending=[True, False, True])
+    pick = up.loc[take_by_group(list(up.index), groups, ROTATE_N)]
     n = len(pick)
-    return [{"ticker": t, "dollars": budget / n, "composite": float(r["composite"]), "reason": r.get("reason")}
-            for t, r in pick.iterrows()]
+    return [{"ticker": t, "dollars": budget / n, "composite": float(r["composite"]), "reason": r.get("reason"),
+             "held": float(r["_held"])} for t, r in pick.iterrows()]
 
 
 def sell_list(scored: pd.DataFrame, holdings: dict[str, dict], prices_now: dict[str, float],
@@ -210,6 +161,38 @@ def sell_list(scored: pd.DataFrame, holdings: dict[str, dict], prices_now: dict[
         if rule:
             out.append({"ticker": t, "rule": rule, "composite": float(comp) if _ok(comp) else None})
     return out
+
+
+def step(port: dict, sells: list[str], buys: list[str], px: dict[str, float], contrib: float,
+         cost: float) -> tuple[dict, list[dict]]:
+    """One month's accounting (lab + shadow ledgers): sell `sells` at px, then split contrib + cash + proceeds
+    equally across `buys` with a clean price; leftover -> cash. port = {shares, basis, cash}; never mutated."""
+    shares, basis, trades, proceeds, spent = dict(port["shares"]), dict(port["basis"]), [], 0.0, 0.0
+    for k in [k for k in sells if k in shares and _ok(px.get(k))]:
+        trades.append({"ticker": k, "side": "sell", "dollars": shares.pop(k) * px[k], "price": px[k]})
+        proceeds += trades[-1]["dollars"] * (1 - cost)
+        basis.pop(k, None)
+    budget, names = contrib + port["cash"] + proceeds, [k for k in buys if _ok(px.get(k)) and px[k] > 0]
+    for k in names:
+        dollars = budget / len(names)
+        shares[k], basis[k] = shares.get(k, 0.0) + dollars * (1 - cost) / px[k], basis.get(k, 0.0) + dollars
+        spent += dollars
+        trades.append({"ticker": k, "side": "buy", "dollars": dollars, "price": px[k]})
+    return {"shares": shares, "basis": basis, "cash": budget - spent}, trades
+
+
+def xirr(dates, flows) -> float:
+    """Annual money-weighted return: bisection on NPV (ACT/365); NaN when there is no sign change."""
+    t0, f = pd.Timestamp(dates[0]), np.asarray(flows, float)
+    yrs = np.array([(pd.Timestamp(d) - t0).days / 365.0 for d in dates])
+    npv = lambda r: float(np.sum(f / (1 + r) ** yrs))  # noqa: E731
+    lo, hi = -0.9999, 100.0
+    if npv(lo) * npv(hi) > 0:
+        return float("nan")
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (lo, mid) if npv(lo) * npv(mid) <= 0 else (mid, hi)
+    return (lo + hi) / 2
 
 
 def warnings(scored_row) -> list[str]:

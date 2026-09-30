@@ -342,7 +342,7 @@ def two_me_below(path: str) -> list[str]:
     me = state._completed_month_ends(closes.index, t, date.today())
     if len(me) < 2:
         return []
-    a1, a0 = signals.above200_at(closes, me[-1]), signals.above200_at(closes, me[-2])
+    a1, a0 = signals.factors_at(closes, me[-1])["above200"], signals.factors_at(closes, me[-2])["above200"]
     fac = signals.factors_at(closes, t)
     return [x for x in u if x in fac.index and bool(fac.at[x, "eligible"]) and pd.notna(fac.at[x, "sma200"])
             and not bool(a1.get(x, True)) and not bool(a0.get(x, True))]

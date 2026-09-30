@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from finres import model
+from lab import backtest as bt
 
 G1N = {"weights": "W1", "gate": "G1", "sell": "S3", "buy": "Nvar"}
 
@@ -76,12 +77,6 @@ def test_labels_each_branch():
     assert model.score(live)["label"].ne("Insufficient data").all()
 
 
-def test_rng_signal_overrides_ranking():
-    fac = _fac(5)
-    rng = pd.Series([5.0, 4.0, 3.0, 2.0, 1.0], index=fac.index)
-    assert list(model.score(fac, rng_signal=rng).index) == ["T00", "T01", "T02", "T03", "T04"]
-
-
 def test_regime():
     fac = _fac(10, above200=[True] * 3 + [False] * 7)
     r = model.regime(fac, 500.0, 450.0)
@@ -94,44 +89,44 @@ def test_regime():
 def test_buy_list_nvar_gate_and_max():
     fac = _fac(100, trend=[i % 2 == 0 for i in range(100)])
     s = model.score(fac, "W3")
-    buys = model.buy_list(s, {}, {}, G1N, brake=False, budget=2500)
+    buys = bt.buy_list(s, {}, {}, G1N, brake=False, budget=2500)
     assert buys and all(s.loc[b["ticker"], "composite"] >= 0.85 and s.loc[b["ticker"], "trend"] for b in buys)
     assert len(buys) == 8 and sum(b["dollars"] for b in buys) == pytest.approx(2500)
-    g0 = model.buy_list(s, {}, {}, {**G1N, "gate": "G0"}, brake=False, budget=2500)
+    g0 = bt.buy_list(s, {}, {}, {**G1N, "gate": "G0"}, brake=False, budget=2500)
     assert len(g0) == 10 and [b["ticker"] for b in g0][:2] == ["T99", "T98"]  # capped at MAX_N, ignores trend
     assert set(buys[0]) == {"ticker", "dollars", "composite", "reason"}
 
 
 def test_buy_list_n3_brake_empty():
     s = model.score(_fac(20), "W3")
-    n3 = model.buy_list(s, {}, {}, {**G1N, "buy": "N3"}, brake=False, budget=3000)
+    n3 = bt.buy_list(s, {}, {}, {**G1N, "buy": "N3"}, brake=False, budget=3000)
     assert [b["ticker"] for b in n3] == ["T19", "T18", "T17"] and n3[0]["dollars"] == 1000
-    braked = model.buy_list(s, {}, {}, G1N, brake=True, budget=2500)
+    braked = bt.buy_list(s, {}, {}, G1N, brake=True, budget=2500)
     assert [b["ticker"] for b in braked] == ["T19", "T18"] and braked[0]["dollars"] == 1250
     none = model.score(_fac(20, trend=False), "W3")
-    assert model.buy_list(none, {}, {}, G1N, brake=False, budget=2500) == []
-    assert model.buy_pool(none, {}, {}, G1N).empty
+    assert bt.buy_list(none, {}, {}, G1N, brake=False, budget=2500) == []
+    assert bt.buy_pool(none, {}, {}, G1N).empty
 
 
 def test_caps_inactive_below_threshold_and_active_above():
     s = model.score(_fac(20, speculative=[False] * 17 + [True, False, False]), "W3")
     groups = {"T19": "semis", "T18": "semis", "T17": "software", "T16": "software"}
     small = {"T19": 20_000.0, "T00": 1_000.0}  # 95% in one name but portfolio < $25k
-    assert "T19" in model.buy_pool(s, small, groups, G1N).index
+    assert "T19" in bt.buy_pool(s, small, groups, G1N).index
     # position cap: T19 = 10% of 100k
     big = {"T19": 10_000.0, "T00": 90_000.0}
-    pool = model.buy_pool(s, big, groups, G1N).index
+    pool = bt.buy_pool(s, big, groups, G1N).index
     assert "T19" not in pool and "T18" in pool
     # group cap: semis = 30% via T18 -> T19 blocked too
     grp = {"T18": 30_000.0, "T00": 70_000.0}
-    pool = model.buy_pool(s, grp, groups, G1N).index
+    pool = bt.buy_pool(s, grp, groups, G1N).index
     assert "T19" not in pool and "T18" not in pool and "T16" in pool
     # unknown group = own group: T00 at 70% is blocked, but T01 is not
     assert "T00" not in pool and "T01" in pool
     # speculative: T17 position >= 3%
     spec = {"T17": 3_000.0, "T00": 9_000.0, "T01": 9_000.0, "T02": 9_000.0, "T03": 9_000.0, "T04": 9_000.0,
             "T05": 9_000.0, "T06": 9_000.0, "T07": 9_000.0, "T08": 9_000.0, "T09": 9_000.0, "T10": 7_000.0}
-    pool = model.buy_pool(s, spec, {}, G1N).index
+    pool = bt.buy_pool(s, spec, {}, G1N).index
     assert "T17" not in pool and "T16" in pool
 
 
@@ -140,7 +135,7 @@ def test_speculative_total_cap():
     positions = {"T00": 2_500.0, "T01": 2_500.0, "T02": 7_000.0, "T05": 9_000.0, "T06": 9_000.0,
                  "T07": 9_000.0, "T08": 9_000.0, "T09": 9_000.0, "T10": 9_000.0, "T11": 9_000.0,
                  "T12": 9_000.0, "T13": 9_000.0, "T14": 9_000.0}  # 111k, speculative total 10.8%
-    pool = model.buy_pool(s, positions, {}, G1N).index
+    pool = bt.buy_pool(s, positions, {}, G1N).index
     assert not {"T17", "T18", "T19"} & set(pool) and "T16" in pool
 
 
@@ -201,9 +196,9 @@ def test_buy_list_max_per_group(monkeypatch):
     scored = model.score(fac)
     groups = {t: ("semis" if t.startswith("S") else "infra") for t in idx}
     cfg = {"weights": "W1", "gate": "G1", "sell": "S3", "buy": "N3"}
-    assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "S2"]
+    assert [b["ticker"] for b in bt.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "S2"]
     monkeypatch.setattr(model, "MAX_PER_GROUP", 2)
-    assert [b["ticker"] for b in model.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "P0"]
+    assert [b["ticker"] for b in bt.buy_list(scored, {}, groups, cfg, False, 2500)] == ["S0", "S1", "P0"]
 
 
 def test_b0r_rotation_least_held_first():
@@ -232,3 +227,31 @@ def test_stop_fires_for_unscored_holding():
     got = model.sell_list(s, {"COST": {"shares": 1, "cost": 2000.0}, "UP": {"shares": 1, "cost": 10.0}},
                           {"COST": 1000.0, "UP": 50.0}, {"COST", "UP"}, {"sell": "S3"})
     assert got == [{"ticker": "COST", "rule": "-35% stop", "composite": None}]
+
+
+def test_step_sells_then_equal_buys_with_costs_and_leftover():
+    port = {"shares": {"A": 10.0, "B": 5.0}, "basis": {"A": 400.0, "B": 250.0}, "cash": 100.0}
+    frozen = {"shares": dict(port["shares"]), "basis": dict(port["basis"]), "cash": 100.0}
+    px = {"A": 50.0, "B": 60.0, "C": 20.0, "D": 0.0}
+    new, trades = model.step(port, ["A"], ["B", "C", "D", "E"], px, 2500.0, 0.01)  # D price 0, E missing: skipped
+    assert port == frozen  # input never mutated
+    budget = 2500 + 100 + 10 * 50 * 0.99
+    assert "A" not in new["shares"] and "A" not in new["basis"]
+    assert new["shares"]["B"] == pytest.approx(5 + budget / 2 * 0.99 / 60)
+    assert new["shares"]["C"] == pytest.approx(budget / 2 * 0.99 / 20)
+    assert new["basis"] == pytest.approx({"B": 250 + budget / 2, "C": budget / 2})
+    assert new["cash"] == pytest.approx(0.0, abs=1e-9) and set(new["shares"]) == {"B", "C"}
+    assert [(t["ticker"], t["side"]) for t in trades] == [("A", "sell"), ("B", "buy"), ("C", "buy")]
+    assert trades[0] == {"ticker": "A", "side": "sell", "dollars": 500.0, "price": 50.0}
+
+
+def test_step_no_buys_keeps_cash_and_unpriced_sell_is_held():
+    port = {"shares": {"A": 1.0}, "basis": {"A": 10.0}, "cash": 0.0}
+    new, trades = model.step(port, ["A"], [], {}, 2500.0, 0.0015)
+    assert new == {"shares": {"A": 1.0}, "basis": {"A": 10.0}, "cash": 2500.0} and trades == []
+
+
+def test_xirr_matches_constant_growth():
+    dates = ["2020-01-01", "2021-01-01"]
+    assert model.xirr(dates, [-100.0, 110.0]) == pytest.approx(1.1 ** (365 / 366) - 1, abs=1e-9)  # 2020 is a leap year
+    assert np.isnan(model.xirr(["2020-01-01", "2020-01-01"], [-1.0, 2.0]))

@@ -33,7 +33,6 @@ def test_no_lookahead():
     tampered.iloc[330:340] = np.nan
     after = signals.factors_at(tampered, t)
     pd.testing.assert_frame_equal(before, after)
-    pd.testing.assert_series_equal(signals.above200_at(closes, t), signals.above200_at(tampered, t))
 
 
 def test_factors_match_hand_computation_on_ramp():

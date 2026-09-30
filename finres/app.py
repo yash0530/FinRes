@@ -109,6 +109,7 @@ def _refresh() -> None:
             except Exception:
                 progress["errors"] += 1
             progress["done"] += 1
+        state.step_shadows(conn)  # ADR-008 forward shadow ledgers (no-op until a new month-end has a fill day)
     except Exception:
         progress["errors"] += 1
     finally:

@@ -108,15 +108,3 @@ def load_closes(conn: sqlite3.Connection, tickers: list[str] | None = None, asof
     wide.columns.name = None
     return wide.sort_index()
 
-
-def suspicious_moves(series: pd.Series, splits: pd.Series | None = None, threshold: float = 0.5) -> list[str]:
-    """ISO dates with |daily return| > threshold and no split within ±3 days. A flag only; prices are never changed."""
-    rets = series.dropna().pct_change()
-    split_days = [] if splits is None or len(splits) == 0 else \
-        [pd.Timestamp(d).tz_localize(None) if pd.Timestamp(d).tz else pd.Timestamp(d) for d in splits[splits != 0].index]
-    out = []
-    for d, r in rets[rets.abs() > threshold].items():
-        d = pd.Timestamp(d)
-        if not any(abs((d - s).days) <= 3 for s in split_days):
-            out.append(d.strftime("%Y-%m-%d"))
-    return out

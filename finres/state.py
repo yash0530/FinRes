@@ -14,6 +14,9 @@ LAB_DIR = config.ROOT / "lab" / "results"  # oos.json + fidelity.json (shapes ow
 UPTREND, NO_UPTREND = "UPTREND", "NO UPTREND"  # ADR-005 labels; model.score's BUY/WATCH/... stay internal
 SNAP_KEYS = ["composite", "grade_mom", "grade_qual", "grade_rev", "grade_composite", "label", "mom", "qual",
              "rev", "rev_chg", "rev_breadth", "trend", "close"]
+SHADOW_START = "2026-09"  # ADR-008: forward shadow ledgers start at month-end 2026-09-30 (no hindsight)
+SHADOWS = {"rule": "Shipped rule (B0R · S2)", "ew": "Equal-weight universe", "smh": "SMH DCA"}
+SHADOW_COST = 0.0015  # lab.backtest.COST (15 bps per side); SMH DCA pays none, as in lab `dca`
 _fund_cache: dict[tuple[str, str], dict | None] = {}  # (ticker, asof) -> edgar.fundamentals output
 _est_cache: dict[tuple[str, str], dict] = {}  # (ticker, day) -> estimates.snapshot for out-of-universe analyze
 _sec_cache: dict[tuple[str, str], list] = {}  # (ticker, asof) -> edgar.recent_8k (severe 8-Ks, 45 days)
@@ -177,12 +180,88 @@ def _track(conn, fr: dict | None) -> dict:
     return {"rows": rows, "avg": avg}
 
 
+def _sells(closes: pd.DataFrame, scored: pd.DataFrame, hold: dict, now: dict, me: list) -> list[dict]:
+    """S2 on the last two COMPLETED month-ends me[-2] < me[-1] (never today's close; a missing SMA200 never counts as
+    below), over every loaded column (held out-of-universe names too); the -35% stop uses `now`."""
+    f = signals.factors_at(closes, me[-1] if me else closes.index[-1])
+    f = f.loc[[x for x in hold if x in f.index]].assign(composite=scored["composite"])  # rank rules (S3) see it
+    f0 = signals.factors_at(closes, me[-2]) if len(me) >= 2 else f.iloc[:0]
+    if len(me) < 2:
+        f["sma200"] = math.nan  # not enough completed month-ends: the trend rule cannot fire
+    return model.sell_list(f, hold, now, set(f0.index[f0["sma200"].notna() & ~f0["above200"]]), model.SHIPPED)
+
+
+def step_shadows(conn, ref: date | None = None) -> int:
+    """Advance the shadow ledgers (ADR-008) through each completed month-end >= SHADOW_START, point-in-time like replay
+    mode, filled at the first close after it (strictly before `ref`). Idempotent; stops at a missing fill day."""
+    closes, ref, added = prices.load_closes(conn), ref or date.today(), 0
+    done = {tuple(r) for r in conn.execute("SELECT strategy, month FROM shadow")}
+    mes = _completed_month_ends(closes.index, closes.index[-1], ref) if len(closes) else []
+    for i, me in enumerate(mes):
+        month, later = me.strftime("%Y-%m"), closes.index[closes.index > me]
+        if month < SHADOW_START or not (todo := [x for x in SHADOWS if (x, month) not in done]):
+            continue
+        if not len(later) or later[0].date() >= ref:
+            break
+        fr, d, ff = frame(conn, me.date()), later[0], closes.ffill()
+        px, mark, sc = ff.loc[d].dropna().to_dict(), ff.loc[me].dropna().to_dict(), fr["scored"]
+        for x in todo:
+            row = conn.execute("SELECT state FROM shadow WHERE strategy = ? ORDER BY month DESC LIMIT 1", (x,)).fetchone()
+            prev = json.loads(row[0]) if row else {"port": {"shares": {}, "basis": {}, "cash": 0.0}, "contributions": 0}
+            sh = prev["port"]["shares"]
+            hold = {k: {"cost": prev["port"]["basis"][k] / n} for k, n in sh.items()}
+            sells = [r["ticker"] for r in _sells(closes, sc, hold, mark, mes[:i + 1])] if x == "rule" else []
+            pos = {k: n * mark.get(k, 0.0) for k, n in sh.items() if k not in sells}
+            buys = ["SMH"] if x == "smh" else list(sc.index[sc["eligible"].astype(bool)]) if x == "ew" else \
+                [b["ticker"] for b in model.buy_list(sc, pos, fr["u"]["ticker_group"], model.SHIPPED, False, BUDGET)]
+            if d == closes.index[-1] and any(pd.isna(closes.at[d, k]) for k in sells + buys if k in closes):
+                return added  # the fill day's closes are incomplete: the next refresh continues
+            port, trades = model.step(prev["port"], sells, buys, px, BUDGET, 0.0 if x == "smh" else SHADOW_COST)
+            rec = {"port": port, "trades": trades, "fill_date": d.date().isoformat(), "contributions": prev["contributions"] + 1,
+                   "value_after": sum(n * px[k] for k, n in port["shares"].items()) + port["cash"]}
+            conn.execute("INSERT OR IGNORE INTO shadow VALUES (?,?,?)", (x, month, json.dumps(rec)))
+            conn.commit()
+            added += 1
+    return added
+
+
+def _shadow_rows(conn) -> list[dict]:
+    """Per shadow ledger: months, invested, value marked at the latest close, XIRR since inception."""
+    out = []
+    for x, label in SHADOWS.items():
+        recs = [json.loads(r[0]) for r in conn.execute("SELECT state FROM shadow WHERE strategy = ? ORDER BY month", (x,))]
+        if recs:
+            port = recs[-1]["port"]
+            last = prices.load_closes(conn, list(port["shares"]) or ["SMH"]).ffill()
+            value = port["cash"] + sum(n * float(last[k].iloc[-1]) for k, n in port["shares"].items() if k in last)
+            out.append({"strategy": label, "months": len(recs), "invested": BUDGET * len(recs), "value": value,
+                        "xirr": clean(model.xirr([r["fill_date"] for r in recs] + [last.index[-1]],
+                                                 [-BUDGET] * len(recs) + [value]))})
+    return out
+
+
+def changes(conn) -> dict | None:
+    """Since the latest snapshot >= 5 days before the newest: trend flips and severe 8-Ks filed after it."""
+    days = [r[0] for r in conn.execute("SELECT DISTINCT date FROM snapshot ORDER BY date DESC")]
+    prev = next((x for x in days if (date.fromisoformat(days[0]) - date.fromisoformat(x)).days >= 5), None)
+    if prev is None:
+        return None
+    tr: dict = {}
+    for r in conn.execute("SELECT ticker, date, factors FROM snapshot WHERE date IN (?, ?) ORDER BY ticker", (days[0], prev)):
+        tr.setdefault(r[0], {})[r[1]] = json.loads(r[2]).get("trend")
+    flip = lambda a, b: [t for t, v in tr.items() if v.get(days[0]) is a and v.get(prev) is b]  # noqa: E731
+    out = {"since": prev, "up": flip(True, False), "down": flip(False, True),
+           "sec": [t for t, v in tr.items() if days[0] in v and any(f["date"] > prev for f in sec_flags(t, None))]}
+    return out if out["up"] or out["down"] or out["sec"] else None
+
+
 def build(conn, asof: date | None = None) -> dict:
     """The whole page state. asof = replay date (config.ASOF) or None for live."""
     fr = frame(conn, asof)
     s = {"meta": _meta(conn, fr, asof), "buys": [], "sells": [], "watch": [], "holdings": [], "totals": None,
          "categories": [], "regime": None, "coverage": 0.0, "withheld": True, "track": _track(conn, fr),
-         "lab": _lab(), "model": f"{model.SHIPPED['buy']} · {model.SHIPPED['sell']}", "budget": BUDGET}
+         "lab": _lab(), "shadow": _shadow_rows(conn), "changes": changes(conn) if asof is None else None,
+         "shadow_start": SHADOW_START, "model": f"{model.SHIPPED['buy']} · {model.SHIPPED['sell']}", "budget": BUDGET}
     hold = {r["ticker"]: {"shares": r["shares"], "cost": r["cost"]}
             for r in conn.execute("SELECT * FROM holdings ORDER BY ticker")}
     if fr is None:  # no prices: still list saved holdings, value unknown
@@ -203,20 +282,7 @@ def build(conn, asof: date | None = None) -> dict:
 
     # Holdings, positions and sells.
     positions = {x: h["shares"] * last.get(x, h["cost"]) for x, h in hold.items()}
-    # S2 "two consecutive month-ends below 200DMA" is judged on the last two COMPLETED month-ends ME0 < ME1,
-    # not on today's close: sma200/above200 come from ME1, `below200_prev` from ME0, over ALL loaded columns
-    # (held out-of-universe names too). A missing SMA200 never counts as below. The -35% stop uses the latest close.
-    me = _completed_month_ends(closes.index, fr["t"], asof or date.today())
-    sell_frame = fac_all.loc[[x for x in hold if x in fac_all.index]].copy()
-    sell_frame["composite"] = scored["composite"].reindex(sell_frame.index)  # rank rules (S3) still see it
-    below_prev = set()
-    if len(me) >= 2:
-        f0, f1 = signals.factors_at(closes, me[-2]), signals.factors_at(closes, me[-1])
-        below_prev = set(f0.index[f0["sma200"].notna() & ~f0["above200"]])
-        sell_frame["sma200"], sell_frame["above200"] = f1["sma200"], f1["above200"]
-    else:
-        sell_frame["sma200"] = math.nan  # not enough completed month-ends: the trend rule cannot fire
-    sells = model.sell_list(sell_frame, hold, last, below_prev, model.SHIPPED)
+    sells = _sells(closes, scored, hold, last, _completed_month_ends(closes.index, fr["t"], asof or date.today()))
     rule = {x["ticker"]: x["rule"] for x in sells}
     total = sum(positions.values())
     for x, h in hold.items():

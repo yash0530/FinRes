@@ -29,4 +29,8 @@ def test_templates_css_budget():
 
 
 def test_lab_budget():
-    assert _count(_files("lab", "*.py")) <= 600
+    assert _count(_files("lab", "*.py")) <= 700  # ADR-008
+
+
+def test_research_budget():
+    assert _count(_files("research", "*.py")) <= 450  # ADR-008

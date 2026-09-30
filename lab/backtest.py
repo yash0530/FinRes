@@ -14,12 +14,10 @@ from finres import model, signals
 CONTRIB = 2500.0
 COST = 0.0015  # 15 bps per side
 MIN_SCORED = 40  # fewer eligible names -> unscored month (equal-weight into all eligible)
+MAX_N, BRAKE_N = 10, 2  # Nvar: at most 10 names; brake: top 2 only (ADR-004)
+CAP_POS, CAP_GROUP, CAP_SPEC_POS, CAP_SPEC_TOTAL, CAPS_FROM = 0.10, 0.30, 0.03, 0.10, 25_000
 SLIM = ["eligible", "composite", "trend", "earnings_yield", "speculative", "sma200", "above200", "close"]
 PICKS = ("rank", "random", "random_all", "ew_all", "ew_trend", "ew_trend10")
-
-
-def _clean(x) -> bool:
-    return x is not None and not pd.isna(x) and x > 0
 
 
 # ---------- precompute ----------
@@ -80,6 +78,56 @@ def warm(ctx: dict, weights) -> None:
             scored_at(ctx, t, w)
 
 
+# ---------- ranked buy rules (lab only) ----------
+
+def capped(tickers, scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str]) -> set[str]:
+    """Names that may receive no new money (caps apply only once the portfolio is >= CAPS_FROM)."""
+    port = sum(positions.values())
+    if port < CAPS_FROM:
+        return set()
+    spec = scored["speculative"].to_dict() if "speculative" in scored else {}
+    group = lambda t: groups.get(t) or ("_own", t)  # noqa: E731 - unknown group = own group
+    by_group: dict = {}
+    for t, v in positions.items():
+        by_group[group(t)] = by_group.get(group(t), 0.0) + v
+    spec_total = sum(v for t, v in positions.items() if spec.get(t, False))
+    out = set()
+    for t in tickers:
+        pos = positions.get(t, 0.0)
+        if pos >= CAP_POS * port or by_group.get(group(t), 0.0) >= CAP_GROUP * port or (
+                spec.get(t, False) and (pos >= CAP_SPEC_POS * port or spec_total >= CAP_SPEC_TOTAL * port)):
+            out.add(t)
+    return out
+
+
+def buy_pool(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict) -> pd.DataFrame:
+    """Eligible, scored names (Trend-passing under G1), in tie-break order, minus capped names."""
+    df = scored[scored["eligible"].astype(bool) & scored["composite"].notna()]
+    if cfg["gate"] == "G1":
+        df = df[df["trend"].astype(bool)]
+    return model.order(df[~df.index.isin(capped(df.index, scored, positions, groups))])
+
+
+def buy_list(scored: pd.DataFrame, positions: dict[str, float], groups: dict[str, str], cfg: dict,
+             brake: bool, budget: float) -> list[dict]:
+    """The lab's ranked buy rules (Nvar/N3 with caps and brake; moved from finres.model, ADR-008); B0R -> the app's."""
+    if cfg["buy"] == "B0R":
+        return model.buy_list(scored, positions, groups, cfg, brake, budget)
+    pool = buy_pool(scored, positions, groups, cfg)
+    if cfg["buy"] == "Nvar":
+        pool, limit = pool[pool["composite"] >= model.BUY_ZONE], MAX_N
+    elif cfg["buy"] == "N3":
+        limit = 3
+    else:
+        raise ValueError(f"unknown buy rule {cfg['buy']!r}")
+    pick = pool.loc[model.take_by_group(list(pool.index), groups, limit)]
+    if brake:
+        pick = pick.head(BRAKE_N)
+    n = len(pick)
+    return [{"ticker": t, "dollars": budget / n, "composite": float(r["composite"]), "reason": r.get("reason")}
+            for t, r in pick.iterrows()]
+
+
 # ---------- simulation ----------
 
 def _months(ctx, start, end):
@@ -91,20 +139,23 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
     """Monthly loop. Returns {"ledger": DataFrame, "trades": list}.
 
     pick="random"/"random_all" draw n_path[t] names (the rank strategy's N that month) uniformly from
-    model.buy_pool under cfg (random) or under the same cfg with gate G0 (random_all, context only).
+    buy_pool under cfg (random) or under the same cfg with gate G0 (random_all, context only).
     """
     assert pick in PICKS
-    shares: dict[str, float] = {}
-    basis: dict[str, float] = {}
-    cash, rows, trades = 0.0, [], []
+    port = {"shares": {}, "basis": {}, "cash": 0.0}
+    rows, trades = [], []
     groups = ctx["groups"]
     for t in _months(ctx, start, end):
         mark, px, el, reg = ctx["mark"][t], ctx["px"][t], ctx["elig"][t], ctx["reg"][t]
+        shares, basis = port["shares"], port["basis"]
         unscored = len(el) < MIN_SCORED
-        if rng_signal:
+        if rng_signal:  # sanity (a): the composite is a random percentile over eligible names
             fac = ctx["fac"][t]
             sig = pd.Series(rng.random(len(fac)), index=fac.index)
-            scored = model.score(fac, cfg["weights"], use_revisions=False, rng_signal=sig)[SLIM]
+            scored = model.score(fac, cfg["weights"], use_revisions=False)
+            e = scored.index[scored["eligible"]]
+            scored["composite"] = model.pct(sig.reindex(e).astype(float)).reindex(scored.index).astype(float)
+            scored = model.order(scored)[SLIM]
         else:
             scored = scored_at(ctx, t, cfg.get("weights", "W1"))
         positions = {k: s * mark.get(k, px[k]) for k, s in shares.items()}
@@ -113,43 +164,32 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
             rule = "S2"  # no ranking in an unscored month; stop/trend rules still apply
         holdings = {k: {"cost": basis[k] / shares[k]} for k in shares}
         sells = model.sell_list(scored, holdings, mark, ctx["below_prev"][t], {"sell": rule})
-        proceeds = sold = 0.0
         for s in sells:
-            k = s["ticker"]
-            gross = shares.pop(k) * px[k]
-            basis.pop(k), positions.pop(k)
-            sold += gross
-            proceeds += gross * (1 - COST)
-            trades.append({"date": ctx["exec"][t], "ticker": k, "side": "sell", "dollars": gross,
-                           "price": px[k], "rule": s["rule"]})
-        budget = CONTRIB + cash + proceeds
-        n = None
+            positions.pop(s["ticker"])
+        n = None  # buy_list's budget only sizes its dicts; the names do not depend on it
         if unscored or pick == "ew_all":
             names = list(el)
         elif pick == "ew_trend":
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
         elif pick == "ew_trend10":  # the app's shipped rule (ADR-005), same code path
-            names = [b["ticker"] for b in model.buy_list(scored, positions, groups, {"buy": "B0R"}, False, budget)]
+            names = [b["ticker"] for b in model.buy_list(scored, positions, groups, {"buy": "B0R"}, False, CONTRIB)]
         elif pick == "rank":
-            names = [b["ticker"] for b in model.buy_list(scored, positions, groups, cfg, reg["brake"], budget)]
+            names = [b["ticker"] for b in buy_list(scored, positions, groups, cfg, reg["brake"], CONTRIB)]
         else:
             n = n_path[t]
-            pool = model.buy_pool(scored, positions, groups, cfg if pick == "random" else {**cfg, "gate": "G0"})
+            pool = buy_pool(scored, positions, groups, cfg if pick == "random" else {**cfg, "gate": "G0"})
             names = model.take_by_group(list(rng.permutation(pool.index.to_numpy())), groups, n) if n else []
-        names = [k for k in names if _clean(px.get(k))]
-        spent = 0.0
-        for k in names:
-            dollars = budget / len(names)
-            shares[k] = shares.get(k, 0.0) + dollars * (1 - COST) / px[k]
-            basis[k] = basis.get(k, 0.0) + dollars
-            spent += dollars
-            trades.append({"date": ctx["exec"][t], "ticker": k, "side": "buy", "dollars": dollars,
-                           "price": px[k], "rule": pick})
-        cash = budget - spent
-        value = sum(s * px[k] for k, s in shares.items()) + cash
-        rows.append({"date": t, "exec": ctx["exec"][t], "contribution": CONTRIB, "value": value, "cash": cash,
-                     "n_buys": len(names), "n_sells": len(sells), "n_draw": n, "turnover": (sold + spent) / value,
-                     "eligible": len(el), "brake": bool(reg["brake"]), "unscored": unscored})
+        port, tr = model.step(port, [s["ticker"] for s in sells], names, px, CONTRIB, COST)
+        why = {s["ticker"]: s["rule"] for s in sells}
+        trades += [{"date": ctx["exec"][t], **x, "rule": why[x["ticker"]] if x["side"] == "sell" else pick} for x in tr]
+        sold = spent = 0.0  # plain += (Python 3.12 sum() is compensated and would change the last digits)
+        for x in tr:
+            sold, spent = (sold + x["dollars"], spent) if x["side"] == "sell" else (sold, spent + x["dollars"])
+        value = sum(s * px[k] for k, s in port["shares"].items()) + port["cash"]
+        rows.append({"date": t, "exec": ctx["exec"][t], "contribution": CONTRIB, "value": value, "cash": port["cash"],
+                     "n_buys": sum(x["side"] == "buy" for x in tr), "n_sells": len(sells), "n_draw": n,
+                     "turnover": (sold + spent) / value, "eligible": len(el), "brake": bool(reg["brake"]),
+                     "unscored": unscored})
     return {"ledger": pd.DataFrame(rows), "trades": trades}
 
 
@@ -166,22 +206,7 @@ def dca(ctx: dict, ticker: str, start: str, end: str) -> pd.DataFrame:
 
 # ---------- metrics ----------
 
-def xirr(dates, flows) -> float:
-    """Annual money-weighted return: bisection on NPV (ACT/365)."""
-    t0 = pd.Timestamp(dates[0])
-    yrs = np.array([(pd.Timestamp(d) - t0).days / 365.0 for d in dates])
-    f = np.asarray(flows, float)
-    npv = lambda r: float(np.sum(f / (1 + r) ** yrs))  # noqa: E731
-    lo, hi = -0.9999, 100.0
-    if npv(lo) * npv(hi) > 0:
-        return float("nan")
-    for _ in range(200):
-        mid = (lo + hi) / 2
-        if npv(lo) * npv(mid) <= 0:
-            hi = mid
-        else:
-            lo = mid
-    return (lo + hi) / 2
+xirr = model.xirr  # moved to finres/model.py (shadow ledgers); same bisection
 
 
 def twr(ledger: pd.DataFrame) -> np.ndarray:

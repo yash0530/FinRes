@@ -28,6 +28,11 @@
 <main class="wrap">
 <section id="plan">
   <h2>This month’s plan</h2>
+  {% set c = s.changes %}{% if c %}
+  {% set parts = (["%d new uptrend%s (%s)"|format(c.up|length, '' if c.up|length == 1 else 's', c.up|join(', '))] if c.up else [])
+     + (["%d lost uptrend (%s)"|format(c.down|length, c.down|join(', '))] if c.down else [])
+     + (["8-K: " ~ c.sec|join(', ')] if c.sec else []) %}
+  <p class="small changes" id="changes">Since {{ c.since }}: {{ parts|join(' · ') }}</p>{% endif %}
   {% if not m.asof %}
   <p class="empty">No data yet. The first refresh takes a few minutes; the page reloads when it finishes.</p>
   {% elif s.withheld %}
@@ -116,6 +121,13 @@
   {% else %}
   <p class="empty">No picks recorded yet — they appear after you click “I placed these buys”.</p>
   {% endif %}
+  <h3>Forward shadow portfolios (since {{ s.shadow_start }}, no hindsight)</h3>
+  {% if s.shadow %}<div class="scroll"><table>
+    <thead><tr><th>Strategy</th><th class="n">Months</th><th class="n">Invested</th><th class="n">Value</th><th class="n">XIRR</th></tr></thead>
+    <tbody>{% for x in s.shadow %}<tr><td>{{ x.strategy }}</td><td class="n">{{ x.months }}</td><td class="n">{{ x.invested|money0 }}</td>
+      <td class="n">{{ x.value|money0 }}</td><td class="n">{{ signed(x.xirr) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="empty">Starts after the first completed month-end (2026-09-30) and the next refresh.</p>{% endif %}
   <h3>Backtest (lab)</h3>
   <p>{% if s.lab %}{{ s.lab.headline }}{% else %}Validation pending — see lab/REPORT.md{% endif %}</p>
 </section>

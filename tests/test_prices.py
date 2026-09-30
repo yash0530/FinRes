@@ -1,4 +1,4 @@
-"""Price cache and data-quality flag (offline)."""
+"""Price cache (offline)."""
 from datetime import date
 
 import pandas as pd
@@ -33,11 +33,3 @@ def test_load_closes_asof_excludes_later_rows(tmp_db):
     assert out.index.max() == pd.Timestamp("2024-01-03")
     assert len(out) == 2
 
-
-def test_suspicious_moves_flags_unexplained_jump_only():
-    days = pd.bdate_range("2024-01-01", periods=6)
-    s = pd.Series([10, 10, 16, 16, 16, 16], index=days, dtype=float)  # +60% on day 3
-    assert prices.suspicious_moves(s) == [days[2].strftime("%Y-%m-%d")]
-    splits = pd.Series([2.0], index=[days[3]])  # split within 3 days explains it
-    assert prices.suspicious_moves(s, splits) == []
-    assert s.tolist() == [10, 10, 16, 16, 16, 16]  # never modified

@@ -1,4 +1,4 @@
-"""SQLite schema (exactly 5 tables) and tiny helpers."""
+"""SQLite schema (exactly 6 tables, ADR-008) and tiny helpers."""
 import json
 import sqlite3
 from pathlib import Path
@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS thesis   (ticker TEXT, week TEXT, json TEXT, created 
 CREATE TABLE IF NOT EXISTS holdings (ticker TEXT PRIMARY KEY, shares REAL NOT NULL, cost REAL NOT NULL, added TEXT);
 CREATE TABLE IF NOT EXISTS picks    (month TEXT, ticker TEXT, price REAL, rank INTEGER, reason TEXT, d TEXT,
                                     PRIMARY KEY (month, ticker));
+CREATE TABLE IF NOT EXISTS shadow   (strategy TEXT, month TEXT, state TEXT, PRIMARY KEY (strategy, month));
 """
 
 

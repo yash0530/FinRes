@@ -58,11 +58,6 @@ def factors_at(closes: pd.DataFrame, t: pd.Timestamp) -> pd.DataFrame:
     return out
 
 
-def above200_at(closes: pd.DataFrame, t: pd.Timestamp) -> pd.Series:
-    """close > SMA200 at t per ticker (False when either is missing)."""
-    return factors_at(closes, t)["above200"]
-
-
 def revisions_raw(est: dict | None) -> dict:
     """rev_chg (90-day FY EPS estimate change, clipped ±50%) and rev_breadth (net up-revisions share)."""
     est = est or {}

@@ -91,8 +91,8 @@ def test_random_picks_from_pool_with_rank_n(monkeypatch):
     led = rank["ledger"]
     n_path = dict(zip(led["date"], led["n_buys"]))
     assert led["n_buys"].sum() > 0 and not led["unscored"].any()
-    pools, real = [], model.buy_pool
-    monkeypatch.setattr(model, "buy_pool", lambda *a, **k: pools.append(real(*a, **k)) or pools[-1])
+    pools, real = [], bt.buy_pool
+    monkeypatch.setattr(bt, "buy_pool", lambda *a, **k: pools.append(real(*a, **k)) or pools[-1])
     rnd = bt.simulate(ctx, CFG, "2016-01", "2026-08", "random", np.random.default_rng(0), n_path=n_path)
     by_date = {}
     for x in rnd["trades"]:

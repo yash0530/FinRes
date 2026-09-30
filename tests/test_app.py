@@ -409,3 +409,31 @@ def test_guide_tab_renders_user_guide(env):
     assert r.status_code == 200 and "<h2>The rules" in r.text and "<table>" in r.text
     assert "https://github.com/yash0530/FinRes/blob/main/DECISIONS.md" in r.text
     assert 'href="/guide"' in client.get("/").text
+
+
+def test_track_shows_shadow_empty_state_and_what_changed(env):
+    r = env["client"].get("/")
+    assert "Forward shadow portfolios (since 2026-09, no hindsight)" in r.text
+    assert "Starts after the first completed month-end (2026-09-30) and the next refresh." in r.text
+    assert 'id="changes"' not in r.text  # one snapshot date: nothing to compare
+    old = (date.today() - timedelta(days=8)).isoformat()
+    with env["conn"]:
+        for t in UNI["tickers"]:
+            env["conn"].execute("INSERT INTO snapshot VALUES (?,?,?,?)", (t, old, '{"trend": false}', "{}"))
+    ups = sorted((x for c in state.build(env["conn"])["categories"] for x in c["rows"] if x.get("trend")),
+                 key=lambda x: x["ticker"])
+    yday = (date.today() - timedelta(days=1)).isoformat()
+    with env["conn"]:
+        for x in ups:
+            env["conn"].execute("UPDATE snapshot SET factors = ? WHERE ticker = ? AND date = ?",
+                                ('{"trend": true}', x["ticker"], yday))
+    r = env["client"].get("/")
+    assert f"Since {old}: {len(ups)} new uptrends ({ups[0]['ticker']}" in r.text.replace("&#39;", "'")
+
+
+def test_refresh_steps_shadows(env, monkeypatch):
+    calls = []
+    monkeypatch.setattr(state, "step_shadows", lambda conn: calls.append(1) or 0)
+    appmod.start_refresh()
+    appmod._thread.join(30)
+    assert calls == [1]
