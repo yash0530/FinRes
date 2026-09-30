@@ -534,6 +534,8 @@ def phase_report(args) -> None:
                          f"{h1['stress_names']} unpriced names as EW-index clones ending in a −55% (Nasdaq) / −30% day"),
                          ("ai_hand", "2026 hand-picked AI universe, same period (bias estimate)")):
             md += [f"### {title}", *_table(h1[k]["rows"]), ""]
+        md += ["Stress clones die on post-t dates (Tiingo end date, else last 10-K + 365 days), known only after the "
+               "fact: a stress assumption about how the unpriced names ended, not a signal the rule could trade.", ""]
         md += ["### Headline (XIRR differences)", *[f"- {k}: {v:+.1%}" for k, v in hl.items()],
                "- **The rule's XIRR on the PIT universe was " + ("BELOW monthly SMH DCA. Per ADR-007 the app says so "
                "plainly and Yash decides; there is no automatic switch.**" if hl["rule_minus_smh_priced"] < 0 else
@@ -564,6 +566,12 @@ def phase_report(args) -> None:
                *([f"Random portfolios (1,000, same uptrend pool): percentile {h2['random']['percentile']:.1f}, "
                   f"60th {_p(h2['random']['p60'])}", ""] if "random" in h2 else []),
                "### Gates", *[f"- {k}: {'yes' if v else 'no'}" for k, v in g.items()], f"- **Ship: {h2['ship']}**", ""]
+        b0r = next(r for r in h2["is"] if r["name"] == B0R)
+        if b0r["unscored_months"] == b0r["months"]:  # review #2 F3
+            md += [f"**H2 in-sample was a null test.** All {b0r['months']} IS months had < 40 eligible names (unscored), "
+                   "so every variant bought the same names as B0R and differed only in its exits; `beats_b0r_is` could "
+                   "hardly pass by construction. H2 is **inconclusive** (not \"the variants failed\"); the pre-registered "
+                   "decision (B0R stays) stands.", ""]
     rob = load("h1_robust.json")
     if rob:
         md += ["## H1 robustness (context only)", "ADR-007a: reported, never used for selection. R-A = same "
@@ -579,6 +587,15 @@ def phase_report(args) -> None:
                "|---|---|---|", *[f"| {y} | {v} | {rob[ROBUST[1]]['eligible_by_year'].get(y)} |"
                                   for y, v in rob[ROBUST[0]]["eligible_by_year"].items()], ""]
     md += ["## Bug-fix log", "",
+           "- 2026-09-30 (ADR-009a, review #2): F1: in unscored months (< 40 eligible) the simulator sold S2 trend "
+           "failures and re-bought them at the same fill (equal weight into all eligible): 748 of 950 H1 rule sells were "
+           "same-month re-buys. A name sold in a month is now never bought that month. F2: `listed` (Yahoo-priced) only "
+           "via the CIK's current SEC ticker; index words (CRSP, NASDAQ, …) are no longer read as symbols. 8 PIT CIKs lost "
+           "their Yahoo series and are now stress-test names: 6 carried another company's prices (Cray and Zix = CRISPR, "
+           "Rockley = Worthington Steel, Lyris = NOV, CoreSite = Cencora, SGI = Somnigroup), ANSYS and the pre-2021 "
+           "Marvell CIK have no current SEC ticker; Alphabet (GOOGL) and Rigetti (RGTI, not its warrant) were re-priced. "
+           "H1, H1 robustness and H2 were re-run. The hand-picked IS/OOS/fidelity/sanity runs have 0 unscored "
+           "months and were not re-run.",
            "- 2026-09-30 (ADR-004d): the $3 eligibility floor was applied to split-adjusted closes, which uses "
            "future splits (lookahead) and wrongly excluded later winners (e.g. NVDA until ~2019). Floor removed; "
            "sanity, IS, OOS, fidelity and H1 were all re-run. Pre-fix results remain in git history.",

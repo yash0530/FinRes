@@ -201,7 +201,9 @@ def score_text(text: str, sic: int) -> dict:
 
 SYM_RES = [re.compile(r"under the (?:ticker |trading )?symbols? [\"“'(]*([A-Z]{1,5}(?:[.-][A-Z])?)\b"),
            re.compile(r"\b([A-Z]{1,5}(?:[.-][A-Z])?)\s+(?:The\s+)?(?:Nasdaq|NASDAQ|New York Stock Exchange|NYSE)\b")]
-NOT_SYM = {"A", "I", "THE", "NYSE", "LLC", "INC", "USA", "US", "NA", "N", "PAR", "CORP", "CO", "LP", "ADS", "ADR"}
+NOT_SYM = {"A", "I", "THE", "NYSE", "LLC", "INC", "USA", "US", "NA", "N", "PAR", "CORP", "CO", "LP", "ADS", "ADR",
+           # M10/F2: index / data-vendor / filing words ("CRSP Total Return Index" attached CRISPR's prices to Cray)
+           "CRSP", "NASDAQ", "AMEX", "SP", "DJIA", "RUSSELL", "INDEX", "GAAP", "SEC", "CEO", "CFO", "IPO", "ETF", "NAV"}
 
 
 def symbols(text: str) -> str:

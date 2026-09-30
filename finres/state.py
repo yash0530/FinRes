@@ -199,9 +199,21 @@ def _sells(closes: pd.DataFrame, scored: pd.DataFrame, hold: dict, now: dict, me
     return model.sell_list(f, hold, now, set(f0.index[f0["sma200"].notna() & ~f0["above200"]]), model.SHIPPED)
 
 
+def replay(conn, x: str, closes: pd.DataFrame | None = None) -> tuple[dict, list[dict]]:
+    """(portfolio, decisions) of shadow ledger x rebuilt from inception: model.step over the stored decisions at the
+    CURRENT closes of each fill date, so a split (re-adjusted history) cannot desync shares from prices (M10/F4)."""
+    recs, port = db.shadow_decisions(conn, x), {"shares": {}, "basis": {}, "cash": 0.0}
+    ff = (closes if closes is not None else prices.load_closes(conn, sorted({k for r in recs for k in r["sells"] + r["buys"]}) or ["SMH"])).ffill()
+    for r in recs:
+        px = ff.loc[:pd.Timestamp(r["fill_date"])].iloc[-1].dropna().to_dict()
+        port = model.step(port, r["sells"], r["buys"], px, r["contrib"], 0.0 if x == "smh" else SHADOW_COST)[0]
+    return port, recs
+
+
 def step_shadows(conn, ref: date | None = None) -> int:
     """Advance the shadow ledgers (ADR-008) through each completed month-end >= SHADOW_START, point-in-time like replay
-    mode, filled at the first close after it (strictly before `ref`). Idempotent; stops at a missing fill day."""
+    mode, filled at the first close after it (strictly before `ref`). Stores DECISIONS only (M10/F4); idempotent;
+    stops at a missing fill day."""
     closes, ref, added = prices.load_closes(conn), ref or date.today(), 0
     done = {tuple(r) for r in conn.execute("SELECT strategy, month FROM shadow")}
     mes = _completed_month_ends(closes.index, closes.index[-1], ref) if len(closes) else []
@@ -211,22 +223,18 @@ def step_shadows(conn, ref: date | None = None) -> int:
             continue
         if not len(later) or later[0].date() >= ref:
             break
-        fr, d, ff = frame(conn, me.date()), later[0], closes.ffill()
-        px, mark, sc = ff.loc[d].dropna().to_dict(), ff.loc[me].dropna().to_dict(), fr["scored"]
+        fr, d, mark = frame(conn, me.date()), later[0], closes.ffill().loc[me].dropna().to_dict()
+        sc = fr["scored"]
         for x in todo:
-            row = conn.execute("SELECT state FROM shadow WHERE strategy = ? ORDER BY month DESC LIMIT 1", (x,)).fetchone()
-            prev = json.loads(row[0]) if row else {"port": {"shares": {}, "basis": {}, "cash": 0.0}, "contributions": 0}
-            sh = prev["port"]["shares"]
-            hold = {k: {"cost": prev["port"]["basis"][k] / n} for k, n in sh.items()}
+            sh, basis = (p := replay(conn, x, closes)[0])["shares"], p["basis"]
+            hold = {k: {"cost": basis[k] / n} for k, n in sh.items()}
             sells = [r["ticker"] for r in _sells(closes, sc, hold, mark, mes[:i + 1])] if x == "rule" else []
             pos = {k: n * mark.get(k, 0.0) for k, n in sh.items() if k not in sells}
             buys = ["SMH"] if x == "smh" else list(sc.index[sc["eligible"].astype(bool)]) if x == "ew" else \
                 [b["ticker"] for b in model.buy_list(sc, pos, fr["u"]["ticker_group"], model.SHIPPED, False, BUDGET)]
             if d == closes.index[-1] and any(pd.isna(closes.at[d, k]) for k in sells + buys if k in closes):
                 return added  # the fill day's closes are incomplete: the next refresh continues
-            port, trades = model.step(prev["port"], sells, buys, px, BUDGET, 0.0 if x == "smh" else SHADOW_COST)
-            rec = {"port": port, "trades": trades, "fill_date": d.date().isoformat(), "contributions": prev["contributions"] + 1,
-                   "value_after": sum(n * px[k] for k, n in port["shares"].items()) + port["cash"]}
+            rec = {"sells": sells, "buys": buys, "fill_date": d.date().isoformat(), "contrib": BUDGET}
             conn.execute("INSERT OR IGNORE INTO shadow VALUES (?,?,?)", (x, month, json.dumps(rec)))
             conn.commit()
             added += 1
@@ -234,17 +242,16 @@ def step_shadows(conn, ref: date | None = None) -> int:
 
 
 def _shadow_rows(conn) -> list[dict]:
-    """Per shadow ledger: months, invested, value marked at the latest close, XIRR since inception."""
+    """Per shadow ledger: months, invested, value marked at the latest close, XIRR since inception (replayed)."""
     out = []
     for x, label in SHADOWS.items():
-        recs = [json.loads(r[0]) for r in conn.execute("SELECT state FROM shadow WHERE strategy = ? ORDER BY month", (x,))]
+        port, recs = replay(conn, x)
         if recs:
-            port = recs[-1]["port"]
             last = prices.load_closes(conn, list(port["shares"]) or ["SMH"]).ffill()
             value = port["cash"] + sum(n * float(last[k].iloc[-1]) for k, n in port["shares"].items() if k in last)
-            out.append({"strategy": label, "months": len(recs), "invested": BUDGET * len(recs), "value": value,
+            out.append({"strategy": label, "months": len(recs), "invested": sum(r["contrib"] for r in recs), "value": value,
                         "xirr": clean(model.xirr([r["fill_date"] for r in recs] + [last.index[-1]],
-                                                 [-BUDGET] * len(recs) + [value]))})
+                                                 [-r["contrib"] for r in recs] + [value]))})
     return out
 
 
@@ -308,7 +315,8 @@ def build(conn, asof: date | None = None) -> dict:
     s["totals"] = {"value": total, "cost": sum(h["shares"] * h["cost"] for h in hold.values())}
     if not s["withheld"]:
         s["sells"] = [dict(x, pl=next(h["pl"] for h in s["holdings"] if h["ticker"] == x["ticker"])) for x in sells]
-        buys = model.buy_list(scored, positions, u["ticker_group"], model.SHIPPED, False, BUDGET)  # B0R: no brake
+        buys = model.buy_list(scored.drop(index=[x["ticker"] for x in sells], errors="ignore"), positions,
+                              u["ticker_group"], model.SHIPPED, False, BUDGET)  # B0R; never re-buy a name being sold
         for b in buys:
             x, close = b["ticker"], last.get(b["ticker"])
             b.update(category=u["categories"][u["ticker_category"][x]]["name"], close=close,

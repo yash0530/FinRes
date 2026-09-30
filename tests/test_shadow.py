@@ -46,24 +46,39 @@ def test_two_month_ends_stored_per_strategy_and_idempotent(shadow_db):
     rows = _rows(shadow_db)
     assert set(rows) == {(s, m) for s in state.SHADOWS for m in ("2026-09", "2026-10")}
     assert [rows[("smh", m)]["fill_date"] for m in ("2026-09", "2026-10")] == ["2026-10-01", "2026-11-02"]
-    smh = rows[("smh", "2026-10")]
+    assert all(set(r) == {"sells", "buys", "fill_date", "contrib"} for r in rows.values())  # M10: decisions only
+    smh, _ = state.replay(shadow_db, "smh")
     exp = 2500 / df.at[pd.Timestamp("2026-10-01"), "SMH"] + 2500 / df.at[pd.Timestamp("2026-11-02"), "SMH"]
-    assert smh["port"]["shares"]["SMH"] == pytest.approx(exp) and smh["contributions"] == 2
-    assert smh["port"]["cash"] == pytest.approx(0.0, abs=1e-9)
-    ew = rows[("ew", "2026-09")]
-    assert len(ew["port"]["shares"]) > 10 and ew["value_after"] == pytest.approx(
-        sum(n * df.at[pd.Timestamp("2026-10-01"), k] for k, n in ew["port"]["shares"].items()) + ew["port"]["cash"])
-    assert ew["value_after"] == pytest.approx(2500 * (1 - state.SHADOW_COST))  # valued at the fill closes
-    rule = rows[("rule", "2026-09")]
-    buys = [t for t in rule["trades"] if t["side"] == "buy"]
-    assert 0 < len(buys) <= model.ROTATE_N and all(t["dollars"] == pytest.approx(2500 / len(buys)) for t in buys)
-    assert rows[("rule", "2026-10")]["contributions"] == 2
+    assert smh["shares"]["SMH"] == pytest.approx(exp) and smh["cash"] == pytest.approx(0.0, abs=1e-9)
+    assert rows[("smh", "2026-10")] == {"sells": [], "buys": ["SMH"], "fill_date": "2026-11-02", "contrib": 2500.0}
+    ew = model.step({"shares": {}, "basis": {}, "cash": 0.0}, [], rows[("ew", "2026-09")]["buys"],
+                    df.loc[pd.Timestamp("2026-10-01")].to_dict(), 2500, state.SHADOW_COST)[0]
+    assert len(ew["shares"]) > 10 and sum(n * df.at[pd.Timestamp("2026-10-01"), k] for k, n in ew["shares"].items()) \
+        + ew["cash"] == pytest.approx(2500 * (1 - state.SHADOW_COST))  # valued at the fill closes
+    buys = rows[("rule", "2026-09")]["buys"]
+    assert 0 < len(buys) <= model.ROTATE_N
     # second call: nothing new, nothing changed
     assert state.step_shadows(shadow_db, ref=date(2026, 11, 10)) == 0
     assert _rows(shadow_db) == rows
     track = state._shadow_rows(shadow_db)
     assert [(r["months"], r["invested"]) for r in track] == [(2, 5000.0)] * 3
     assert all(r["value"] > 0 for r in track)
+
+
+def test_split_after_redownload_leaves_shadow_value_unchanged(shadow_db):
+    """F4: a 2:1 split right after the last close; the re-download halves every earlier close of the split names.
+    Replaying the stored decisions at the new closes doubles the shares: value and XIRR unchanged (frozen share
+    counts would have halved those positions)."""
+    df = _prices(shadow_db, "2026-12-15")
+    assert state.step_shadows(shadow_db, ref=date(2026, 12, 16)) == 9
+    before = state._shadow_rows(shadow_db)
+    held = list(state.replay(shadow_db, "rule")[0]["shares"]) + ["SMH", "U00"]
+    split = df.copy()
+    split[held] /= 2  # yfinance re-download after the 2:1 split: all closes before the split date halve
+    prices.store(shadow_db, split)
+    after = state._shadow_rows(shadow_db)
+    assert [(r["value"], r["xirr"]) for r in after] == pytest.approx([(r["value"], r["xirr"]) for r in before])
+    assert state.step_shadows(shadow_db, ref=date(2026, 12, 16)) == 0
 
 
 def test_month_without_fill_day_close_is_deferred(shadow_db):

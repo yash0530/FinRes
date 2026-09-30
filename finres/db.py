@@ -43,3 +43,8 @@ def latest_snapshots(conn: sqlite3.Connection) -> dict[str, tuple[str, dict, dic
         "JOIN (SELECT ticker, MAX(date) AS d FROM snapshot GROUP BY ticker) m "
         "ON s.ticker = m.ticker AND s.date = m.d").fetchall()
     return {r["ticker"]: (r["date"], json.loads(r["factors"]), json.loads(r["raw"])) for r in rows}
+
+
+def shadow_decisions(conn: sqlite3.Connection, strategy: str) -> list[dict]:
+    """One shadow ledger's monthly decisions {sells, buys, fill_date, contrib}, oldest first (M10: no share counts)."""
+    return [json.loads(r[0]) for r in conn.execute("SELECT state FROM shadow WHERE strategy = ? ORDER BY month", (strategy,))]

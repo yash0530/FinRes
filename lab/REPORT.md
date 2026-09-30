@@ -132,23 +132,23 @@ The shipped rule beat the equal-weight universe in 10 of 14 calendar years.
 | 2026 | +12.4% | +24.9% | +46.1% |
 
 ## Hindsight-free re-test (ADR-007)
-H1, one run, no selection, 2010-01→2026-08: the shipped rule (B0R + S2, `ew_trend10`) on a universe rebuilt each year from the 10-Ks filed the year before (SIC + frozen dictionary), with PIT revenue ≥ $100M. Sanity on the PIT universe: random-signal percentile 43.3, EW first 3 months pass; repeated from 2014-01 (first month with ≥ 10 eligible names): percentile 49.4, EW first 3 months pass.
+H1, one run, no selection, 2010-01→2026-08: the shipped rule (B0R + S2, `ew_trend10`) on a universe rebuilt each year from the 10-Ks filed the year before (SIC + frozen dictionary), with PIT revenue ≥ $100M. Sanity on the PIT universe: random-signal percentile 54.2, EW first 3 months pass; repeated from 2014-01 (first month with ≥ 10 eligible names): percentile 39.3, EW first 3 months pass.
 
 ### PIT universe, priced names only
 | Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
 |---|---|---|---|---|---|---|---|
-| rule (ew_trend10) | 25.1% | 17.5% | 30.5% | -53.7% | 0.68 | 0.28 | -2.37 |
-| EW (ew_all) | 44.0% | 34.7% | 39.4% | -55.5% | 0.95 | 0.02 | nan |
-| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.36 |
+| rule (ew_trend10) | 26.6% | 18.8% | 32.8% | -56.6% | 0.68 | 0.25 | -2.12 |
+| EW (ew_all) | 44.2% | 34.8% | 39.5% | -55.5% | 0.95 | 0.02 | nan |
+| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.37 |
 | DCA QQQ | 19.5% | 19.4% | 18.5% | -33.7% | 1.06 | 0.00 | -2.16 |
 
-### STRESS TEST: PIT + 103 unpriced names as EW-index clones ending in a −55% (Nasdaq) / −30% day
+### STRESS TEST: PIT + 110 unpriced names as EW-index clones ending in a −55% (Nasdaq) / −30% day
 | Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
 |---|---|---|---|---|---|---|---|
-| rule (ew_trend10) | 25.4% | 18.7% | 30.6% | -53.7% | 0.71 | 0.25 | -2.03 |
-| EW (ew_all) | 41.2% | 32.6% | 37.9% | -53.8% | 0.93 | 0.02 | nan |
-| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.13 |
-| DCA QQQ | 19.5% | 19.4% | 18.5% | -33.7% | 1.06 | 0.00 | -2.01 |
+| rule (ew_trend10) | 25.6% | 18.7% | 32.5% | -54.8% | 0.68 | 0.21 | -2.00 |
+| EW (ew_all) | 41.2% | 32.5% | 37.9% | -53.9% | 0.93 | 0.02 | nan |
+| DCA SMH | 29.7% | 26.7% | 26.7% | -39.6% | 1.03 | 0.00 | -1.11 |
+| DCA QQQ | 19.5% | 19.4% | 18.5% | -33.7% | 1.06 | 0.00 | -1.99 |
 
 ### 2026 hand-picked AI universe, same period (bias estimate)
 | Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
@@ -156,78 +156,80 @@ H1, one run, no selection, 2010-01→2026-08: the shipped rule (B0R + S2, `ew_tr
 | rule (ew_trend10) | 28.2% | 25.4% | 27.8% | -36.1% | 0.95 | 0.14 | 0.78 |
 | EW (ew_all) | 26.6% | 23.6% | 25.0% | -34.3% | 0.98 | 0.02 | nan |
 
+Stress clones die on post-t dates (Tiingo end date, else last 10-K + 365 days), known only after the fact: a stress assumption about how the unpriced names ended, not a signal the rule could trade.
+
 ### Headline (XIRR differences)
-- rule_minus_smh_priced: -4.6%
-- rule_minus_smh_stressed: -4.3%
-- rule_minus_ew_pit: -18.9%
-- bias_hand_minus_pit: +3.1%
+- rule_minus_smh_priced: -3.1%
+- rule_minus_smh_stressed: -4.1%
+- rule_minus_ew_pit: -17.6%
+- bias_hand_minus_pit: +1.6%
 - **The rule's XIRR on the PIT universe was BELOW monthly SMH DCA. Per ADR-007 the app says so plainly and Yash decides; there is no automatic switch.**
 
 ### Year by year, PIT priced (time-weighted)
 | Year | rule (ew_trend10) | EW (ew_all) | DCA SMH | DCA QQQ |
 |---|---|---|---|---|
-| 2010 | -24.4% | -11.9% | +29.2% | +29.0% |
-| 2011 | -16.0% | -9.8% | -5.6% | +3.8% |
-| 2012 | -10.9% | -8.3% | +11.3% | +19.6% |
-| 2013 | +29.3% | +33.2% | +26.9% | +31.4% |
-| 2014 | +7.7% | +15.2% | +31.3% | +19.8% |
-| 2015 | -2.9% | +10.6% | -1.1% | +7.4% |
-| 2016 | +63.4% | +117.8% | +37.2% | +10.4% |
-| 2017 | +50.2% | +64.1% | +41.9% | +33.8% |
-| 2018 | +0.3% | -18.1% | -10.7% | -1.5% |
-| 2019 | +50.8% | +70.1% | +67.0% | +40.7% |
-| 2020 | +76.6% | +90.5% | +52.3% | +43.9% |
-| 2021 | +25.5% | +98.8% | +45.0% | +30.5% |
-| 2022 | -26.0% | -49.5% | -35.5% | -33.7% |
-| 2023 | +36.0% | +186.8% | +68.8% | +53.3% |
-| 2024 | +59.0% | +151.5% | +45.5% | +27.5% |
-| 2025 | -7.6% | +36.5% | +53.0% | +20.8% |
-| 2026 | +56.7% | +19.7% | +46.1% | +15.7% |
+| 2010 | -30.4% | -11.9% | +29.2% | +29.0% |
+| 2011 | -11.3% | -9.8% | -5.6% | +3.8% |
+| 2012 | -5.6% | -8.4% | +11.3% | +19.6% |
+| 2013 | +25.9% | +32.9% | +26.9% | +31.4% |
+| 2014 | +12.6% | +15.9% | +31.3% | +19.8% |
+| 2015 | -7.5% | +9.0% | -1.1% | +7.4% |
+| 2016 | +72.6% | +122.7% | +37.2% | +10.4% |
+| 2017 | +50.8% | +65.2% | +41.9% | +33.8% |
+| 2018 | +2.2% | -17.6% | -10.7% | -1.5% |
+| 2019 | +54.7% | +69.7% | +67.0% | +40.7% |
+| 2020 | +84.4% | +90.7% | +52.3% | +43.9% |
+| 2021 | +24.4% | +99.0% | +45.0% | +30.5% |
+| 2022 | -25.5% | -49.6% | -35.5% | -33.7% |
+| 2023 | +36.7% | +187.6% | +68.8% | +53.3% |
+| 2024 | +76.0% | +151.3% | +45.5% | +27.5% |
+| 2025 | -15.1% | +36.5% | +53.0% | +20.8% |
+| 2026 | +59.0% | +20.0% | +46.1% | +15.7% |
 
 ### Eligible names per month-end (min / median / max; < 40 = unscored)
 | Year | PIT priced | PIT stress | hand-picked |
 |---|---|---|---|
 | 2010 | [0, 1, 2] | [0, 1, 2] | [81, 81, 82] |
 | 2011 | [2, 4, 4] | [3, 8, 9] | [83, 84, 87] |
-| 2012 | [5, 6, 9] | [11, 16, 20] | [87, 87, 88] |
-| 2013 | [8, 8, 8] | [18, 20, 20] | [88, 89, 92] |
-| 2014 | [14, 14, 14] | [27, 28, 28] | [92, 92, 94] |
-| 2015 | [14, 15, 15] | [31, 32, 33] | [94, 95, 96] |
-| 2016 | [25, 26, 26] | [39, 41, 41] | [96, 96, 98] |
-| 2017 | [23, 23, 23] | [37, 37, 39] | [98, 98, 100] |
-| 2018 | [17, 18, 18] | [34, 36, 39] | [101, 101, 103] |
-| 2019 | [21, 26, 26] | [40, 44, 46] | [103, 105, 107] |
-| 2020 | [30, 30, 30] | [48, 48, 50] | [107, 107, 111] |
-| 2021 | [32, 33, 33] | [46, 49, 51] | [111, 112, 117] |
-| 2022 | [39, 39, 40] | [45, 48, 51] | [119, 124, 127] |
+| 2012 | [5, 6, 8] | [11, 17, 21] | [87, 87, 88] |
+| 2013 | [7, 7, 7] | [19, 21, 21] | [88, 89, 92] |
+| 2014 | [13, 13, 13] | [28, 29, 29] | [92, 92, 94] |
+| 2015 | [13, 14, 14] | [32, 33, 34] | [94, 95, 96] |
+| 2016 | [24, 25, 25] | [40, 42, 42] | [96, 96, 98] |
+| 2017 | [22, 22, 22] | [38, 38, 40] | [98, 98, 100] |
+| 2018 | [16, 17, 17] | [34, 36, 39] | [101, 101, 103] |
+| 2019 | [20, 24, 24] | [40, 44, 46] | [103, 105, 107] |
+| 2020 | [28, 28, 29] | [47, 47, 49] | [107, 107, 111] |
+| 2021 | [30, 31, 31] | [46, 49, 51] | [111, 112, 117] |
+| 2022 | [36, 37, 37] | [44, 47, 50] | [119, 124, 127] |
 | 2023 | [44, 44, 45] | [51, 53, 54] | [127, 132, 132] |
-| 2024 | [51, 52, 53] | [56, 57, 58] | [132, 132, 134] |
+| 2024 | [51, 52, 53] | [56, 57, 57] | [132, 132, 134] |
 | 2025 | [76, 78, 78] | [84, 84, 85] | [134, 138, 139] |
-| 2026 | [96, 96, 97] | [99, 100, 103] | [139, 141, 141] |
+| 2026 | [96, 96, 97] | [99, 100, 101] | [139, 141, 141] |
 
 ### Coverage
 `priced` = prices as `C{cik}` in lab/data/lab.db inside the year; unpriced company-years enter only the delisting stress test. Duplicate CIKs on one ticker are dropped. The $100M floor is applied per month.
 
 | year | eligible | mapped | listed | delisted | unmapped | dup dropped | priced | unpriced | priced share |
 |---|---|---|---|---|---|---|---|---|---|
-| 2010 | 15 | 10 | 4 | 6 | 5 | 0 | 5 | 10 | 33% |
-| 2011 | 24 | 19 | 7 | 12 | 5 | 0 | 7 | 17 | 29% |
-| 2012 | 30 | 25 | 9 | 16 | 5 | 0 | 11 | 19 | 37% |
-| 2013 | 33 | 28 | 9 | 19 | 5 | 0 | 11 | 22 | 33% |
-| 2014 | 42 | 38 | 14 | 24 | 4 | 0 | 16 | 26 | 38% |
-| 2015 | 54 | 48 | 17 | 31 | 6 | 0 | 18 | 36 | 33% |
-| 2016 | 58 | 54 | 28 | 26 | 4 | 0 | 32 | 26 | 55% |
-| 2017 | 57 | 50 | 27 | 23 | 7 | 0 | 29 | 28 | 51% |
-| 2018 | 51 | 43 | 19 | 24 | 8 | 0 | 21 | 30 | 41% |
-| 2019 | 57 | 51 | 27 | 24 | 6 | 0 | 29 | 28 | 51% |
-| 2020 | 66 | 57 | 36 | 21 | 9 | 0 | 37 | 29 | 56% |
-| 2021 | 64 | 59 | 39 | 20 | 5 | 0 | 40 | 24 | 62% |
-| 2022 | 65 | 58 | 46 | 12 | 7 | 0 | 46 | 19 | 71% |
-| 2023 | 71 | 63 | 54 | 9 | 8 | 0 | 55 | 16 | 77% |
-| 2024 | 78 | 68 | 64 | 4 | 10 | 0 | 64 | 14 | 82% |
-| 2025 | 103 | 94 | 89 | 5 | 9 | 0 | 88 | 15 | 85% |
-| 2026 | 129 | 113 | 112 | 1 | 16 | 0 | 111 | 18 | 86% |
-| all (after dups) | 997 | | | | | | 620 | 377 | 62% |
+| 2010 | 15 | 10 | 4 | 6 | 5 | 0 | 4 | 11 | 27% |
+| 2011 | 24 | 19 | 7 | 12 | 5 | 0 | 6 | 18 | 25% |
+| 2012 | 30 | 25 | 9 | 16 | 5 | 0 | 9 | 21 | 30% |
+| 2013 | 33 | 28 | 8 | 20 | 5 | 0 | 8 | 25 | 24% |
+| 2014 | 42 | 38 | 13 | 25 | 4 | 0 | 13 | 29 | 31% |
+| 2015 | 54 | 48 | 16 | 32 | 6 | 0 | 15 | 39 | 28% |
+| 2016 | 58 | 55 | 28 | 27 | 3 | 0 | 28 | 30 | 48% |
+| 2017 | 57 | 51 | 26 | 25 | 6 | 0 | 26 | 31 | 46% |
+| 2018 | 51 | 44 | 19 | 25 | 7 | 0 | 19 | 32 | 37% |
+| 2019 | 57 | 52 | 27 | 25 | 5 | 0 | 27 | 30 | 47% |
+| 2020 | 66 | 61 | 35 | 26 | 5 | 0 | 35 | 31 | 53% |
+| 2021 | 64 | 60 | 38 | 22 | 4 | 0 | 38 | 26 | 59% |
+| 2022 | 65 | 63 | 43 | 20 | 2 | 0 | 43 | 22 | 66% |
+| 2023 | 71 | 66 | 54 | 12 | 5 | 0 | 54 | 17 | 76% |
+| 2024 | 78 | 70 | 63 | 7 | 8 | 0 | 63 | 15 | 81% |
+| 2025 | 103 | 96 | 88 | 8 | 7 | 0 | 88 | 15 | 85% |
+| 2026 | 129 | 117 | 111 | 6 | 12 | 0 | 111 | 18 | 86% |
+| all (after dups) | 997 | | | | | | 587 | 410 | 59% |
 
 **Honesty (ADR-007).** The rule was chosen on data that overlaps 2019–2026. The PIT universe is a new *universe*, not new *time*. Vocabulary drifts ("big data" era, 2010–13), so the eligible counts for each year are reported, and years with fewer than 40 eligible names are unscored. The dictionary was written in 2026, so some hindsight remains in the choice of words. That is why it is frozen here before scoring, with a generic-tech robustness run.
 
@@ -237,20 +239,20 @@ V1 Faber monthly (month-end close vs 10-month SMA), V2 buffer (enter > SMA200 ×
 ### In-sample 2010-01→2017-12
 | Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
 |---|---|---|---|---|---|---|---|
-| V1 | 21.5% | 7.9% | 33.2% | -54.3% | 0.38 | 0.44 | -3.50 |
-| V2 | 20.8% | 7.2% | 32.8% | -54.3% | 0.37 | 0.38 | -3.15 |
-| V3 | 22.1% | 8.3% | 33.2% | -53.7% | 0.40 | 0.41 | -3.17 |
-| B0R | 22.1% | 8.3% | 33.2% | -53.7% | 0.40 | 0.41 | -3.17 |
-| EW (ew_all) | 35.8% | 20.7% | 33.8% | -49.8% | 0.72 | 0.04 | nan |
+| V1 | 22.5% | 7.6% | 32.6% | -54.2% | 0.38 | 0.33 | -3.23 |
+| V2 | 21.9% | 7.7% | 32.1% | -52.8% | 0.38 | 0.29 | -2.76 |
+| V3 | 23.1% | 9.1% | 36.2% | -56.6% | 0.40 | 0.32 | -2.09 |
+| B0R | 23.1% | 9.1% | 36.2% | -56.6% | 0.40 | 0.32 | -2.09 |
+| EW (ew_all) | 36.2% | 20.9% | 33.9% | -49.8% | 0.72 | 0.04 | nan |
 
-Unscored months (< 40 eligible: buys = all eligible names, so only the exits differ): IS V1 96/96, V2 96/96, V3 96/96, B0R 96/96, EW (ew_all) 96/96; OOS V3 57/104, B0R 57/104, EW (ew_all) 57/104.
+Unscored months (< 40 eligible: buys = all eligible names, so only the exits differ): IS V1 96/96, V2 96/96, V3 96/96, B0R 96/96, EW (ew_all) 96/96; OOS V3 60/104, B0R 60/104, EW (ew_all) 60/104.
 
 **Best IS variant: V3.** Out-of-sample 2018-01→2026-08 (run once):
 | Config | XIRR | CAGR | Vol | MaxDD | Sharpe | Turnover | NW t vs EWU |
 |---|---|---|---|---|---|---|---|
-| V3 | 28.4% | 26.9% | 28.8% | -37.5% | 0.97 | 0.23 | 0.02 |
-| B0R | 27.5% | 26.5% | 27.4% | -33.1% | 0.99 | 0.21 | -0.16 |
-| EW (ew_all) | 28.9% | 26.7% | 29.2% | -35.7% | 0.96 | 0.04 | nan |
+| V3 | 31.6% | 30.5% | 29.5% | -33.7% | 1.05 | 0.22 | 0.66 |
+| B0R | 28.6% | 28.3% | 28.8% | -33.7% | 1.01 | 0.23 | 0.20 |
+| EW (ew_all) | 29.4% | 27.0% | 29.1% | -36.9% | 0.97 | 0.04 | nan |
 | DCA SMH | 38.0% | 32.3% | 32.1% | -39.6% | 1.04 | 0.00 | nan |
 | DCA QQQ | 20.4% | 19.0% | 21.4% | -33.7% | 0.92 | 0.00 | nan |
 
@@ -260,49 +262,52 @@ Unscored months (< 40 eligible: buys = all eligible names, so only the exits dif
 | V3 | 12.4% | 12.6% | 15.0% | -25.2% | 0.87 | 0.15 | -1.36 |
 | EW (ew_all) | 15.3% | 15.0% | 15.7% | -28.2% | 0.97 | 0.03 | nan |
 
-Random portfolios (1,000, same uptrend pool): percentile 93.4, 60th 25.0%
+Random portfolios (1,000, same uptrend pool): percentile 97.7, 60th 26.9%
 
 ### Gates
 - beats_b0r_is: no
 - beats_b0r_oos: yes
-- ge_ew_pit_oos: no
+- ge_ew_pit_oos: yes
 - sp500_cogate: no
 - ge_p60_random: yes
 - **Ship: B0R**
+
+**H2 in-sample was a null test.** All 96 IS months had < 40 eligible names (unscored), so every variant bought the same names as B0R and differed only in its exits; `beats_b0r_is` could hardly pass by construction. H2 is **inconclusive** (not "the variants failed"); the pre-registered decision (B0R stays) stands.
 
 ## H1 robustness (context only)
 ADR-007a: reported, never used for selection. R-A = same dictionary, threshold ≥ 2 per 10k words; R-B = compute + network groups only, threshold ≥ 5. 2010-01→2026-08.
 
 | Universe | names | rule (ew_trend10) | EW | DCA SMH | DCA QQQ | rule − EW | unscored months |
 |---|---|---|---|---|---|---|---|
-| ai_pit_ra | 323 | 29.2% | 36.4% | 29.7% | 19.5% | -7.2% | 74 |
-| ai_pit_ra_stress | 616 | 29.4% | 31.1% | 29.7% | 19.5% | -1.7% | 26 |
-| ai_pit_rb | 77 | 28.9% | 44.1% | 29.7% | 19.5% | -15.2% | 200 |
-| ai_pit_rb_stress | 152 | 23.0% | 41.3% | 29.7% | 19.5% | -18.4% | 180 |
+| ai_pit_ra | 307 | 29.5% | 36.5% | 29.7% | 19.5% | -7.0% | 79 |
+| ai_pit_ra_stress | 616 | 29.9% | 28.9% | 29.7% | 19.5% | +1.0% | 26 |
+| ai_pit_rb | 70 | 28.6% | 44.3% | 29.7% | 19.5% | -15.7% | 200 |
+| ai_pit_rb_stress | 152 | 27.0% | 41.3% | 29.7% | 19.5% | -14.3% | 179 |
 
 Eligible names per month-end (min / median / max):
 | Year | ai_pit_ra | ai_pit_rb |
 |---|---|---|
 | 2010 | [0, 2, 5] | [0, 1, 2] |
 | 2011 | [9, 11, 12] | [2, 4, 4] |
-| 2012 | [14, 17, 20] | [5, 6, 8] |
-| 2013 | [18, 18, 18] | [8, 8, 8] |
-| 2014 | [27, 27, 28] | [14, 14, 14] |
-| 2015 | [31, 34, 34] | [13, 14, 14] |
-| 2016 | [39, 40, 43] | [24, 25, 25] |
-| 2017 | [47, 47, 47] | [22, 22, 22] |
-| 2018 | [51, 52, 54] | [17, 17, 17] |
-| 2019 | [55, 61, 63] | [16, 20, 20] |
-| 2020 | [68, 68, 69] | [21, 22, 22] |
-| 2021 | [79, 81, 81] | [24, 24, 24] |
-| 2022 | [88, 89, 90] | [29, 29, 30] |
-| 2023 | [108, 109, 109] | [29, 29, 30] |
-| 2024 | [124, 125, 128] | [31, 32, 32] |
-| 2025 | [195, 197, 198] | [35, 35, 35] |
+| 2012 | [14, 17, 19] | [5, 6, 7] |
+| 2013 | [17, 17, 17] | [7, 7, 7] |
+| 2014 | [25, 26, 26] | [13, 13, 13] |
+| 2015 | [30, 32, 32] | [12, 13, 13] |
+| 2016 | [38, 39, 42] | [23, 24, 24] |
+| 2017 | [43, 44, 44] | [21, 21, 21] |
+| 2018 | [48, 49, 50] | [16, 16, 16] |
+| 2019 | [52, 57, 58] | [15, 18, 18] |
+| 2020 | [61, 61, 64] | [20, 20, 20] |
+| 2021 | [75, 77, 77] | [22, 22, 22] |
+| 2022 | [83, 85, 85] | [27, 27, 27] |
+| 2023 | [107, 108, 108] | [29, 29, 30] |
+| 2024 | [125, 126, 129] | [31, 32, 32] |
+| 2025 | [194, 196, 197] | [35, 35, 35] |
 | 2026 | [220, 221, 222] | [38, 38, 38] |
 
 ## Bug-fix log
 
+- 2026-09-30 (ADR-009a, review #2): F1: in unscored months (< 40 eligible) the simulator sold S2 trend failures and re-bought them at the same fill (equal weight into all eligible): 748 of 950 H1 rule sells were same-month re-buys. A name sold in a month is now never bought that month. F2: `listed` (Yahoo-priced) only via the CIK's current SEC ticker; index words (CRSP, NASDAQ, …) are no longer read as symbols. 8 PIT CIKs lost their Yahoo series and are now stress-test names: 6 carried another company's prices (Cray and Zix = CRISPR, Rockley = Worthington Steel, Lyris = NOV, CoreSite = Cencora, SGI = Somnigroup), ANSYS and the pre-2021 Marvell CIK have no current SEC ticker; Alphabet (GOOGL) and Rigetti (RGTI, not its warrant) were re-priced. H1, H1 robustness and H2 were re-run. The hand-picked IS/OOS/fidelity/sanity runs have 0 unscored months and were not re-run.
 - 2026-09-30 (ADR-004d): the $3 eligibility floor was applied to split-adjusted closes, which uses future splits (lookahead) and wrongly excluded later winners (e.g. NVDA until ~2019). Floor removed; sanity, IS, OOS, fidelity and H1 were all re-run. Pre-fix results remain in git history.
 - 2026-09-30 (ADR-004d): sanity (a) used ONE random-signal ranker, whose percentile is ~Uniform(0,100) under the null (a 35-65 band fails ~70% by chance). Now the mean percentile over 50 seeds. The EWU hand recomputation still applied the old $3 floor; aligned.
 - Before the IS run: random portfolios changed to honor the ADR-004b group limit (`model.take_by_group`), so they differ from the ranked strategy only in *which* names are picked.

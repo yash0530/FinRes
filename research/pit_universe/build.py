@@ -2,13 +2,13 @@
 import argparse, csv, gzip, io, os, time, zipfile  # noqa: E401
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date
 
 import httpx
 import pandas as pd
 
 from finres import db, prices
-from research.pit_universe.scan import DATA, GROUPS, HERE, UTILITY_SIC, WORKERS, fetch, guard, log_error, read_csv, write_csv
+from research.pit_universe.scan import DATA, GROUPS, HERE, NOT_SYM, UTILITY_SIC, WORKERS, fetch, guard, log_error, read_csv, write_csv
 
 YEARS = range(2010, 2027)
 EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "AMEX", "NYSE ARCA"}
@@ -83,61 +83,69 @@ def overlap(a0: str, a1: str, b0: str, b1: str) -> int:
     return (date.fromisoformat(hi) - date.fromisoformat(lo)).days + 1 if lo <= hi else 0
 
 
-def pick_row(cands: list[str], tiingo: dict, year: int, span: tuple[str, str]):
-    """(index, row) of the first candidate with a row overlapping `year`; recycled ticker -> best Jaccard vs filings."""
-    def fit(r):
-        o = overlap(r["startDate"], r["endDate"], *span)
-        return o / overlap(min(r["startDate"], span[0]), max(r["endDate"], span[1]), "0000", "9999")
-    for i, t in enumerate(cands):
-        ok = [r for r in tiingo.get(t, []) if overlap(r["startDate"], r["endDate"], f"{year}-01-01", f"{year}-12-31")]
-        if ok:
-            return i, max(ok, key=lambda r: (fit(r), r["endDate"]))
-    return None, None
+def row_at(t: str, tiingo: dict, d0: str, d1: str) -> dict | None:
+    """t's latest-ending Tiingo row that overlaps d0..d1."""
+    return max((r for r in tiingo.get(t, []) if overlap(r["startDate"], r["endDate"], d0, d1)), key=lambda r: r["endDate"], default=None)
 
 
-def norm(s: str) -> list[str]:
-    return [x.strip().upper().replace(".", "-") for x in (s or "").split("|") if x.strip()]
+def norm(s: str, drop=frozenset()) -> list[str]:
+    return [x for x in (x.strip().upper().replace(".", "-") for x in (s or "").split("|")) if x and x not in drop]
 
 
 def map_rows(elig: list[dict], scores: list[dict], sub_tickers: dict, tiingo: dict) -> tuple[list[dict], list[dict]]:
-    """(universe rows, review list). One CIK per (year, Tiingo row): the ticker's owner in submissions wins."""
+    """(universe rows, review list). M10/F2: "listed" ONLY via the CIK's current SEC ticker (submissions) with an active
+    Tiingo row started by year end; else "delisted" via a filing-stated symbol (this year's filing first, then the
+    nearest) whose row covers THAT filing's date and is alive after this year's filing (never Yahoo); else "unmapped".
+    One CIK per (year, Tiingo row): the ticker's owner in submissions wins."""
     filings = defaultdict(list)
     for r in scores:
         filings[str(r["cik"])].append(r)
     best, review = {}, []
     for e in elig:
         cik, y, fs = str(e["cik"]), int(e["year"]), filings[str(e["cik"])]
-        others = [s for f in sorted(fs, key=lambda f: (abs(int(f["filed"][:4]) - y + 1), f["filed"]))
-                  for s in norm(f.get("symbols"))]
-        own = norm(sub_tickers.get(cik, ""))
-        cands = list(dict.fromkeys(norm(e["symbols_from_filing"]) + others + own))
-        cands += [c + "Q" for c in cands]  # Tiingo renames bankrupt names (INAP -> INAPQ)
+        own, end = norm(sub_tickers.get(cik, "")), f"{y}-12-31"
+        own = sorted(own, key=lambda t: any(t[len(o):] in ("W", "WS", "U", "R") and t.startswith(o) for o in own))  # AIRJ<AIRJW
+        near = [(e["filed"], e["symbols_from_filing"])] + [(f["filed"], f.get("symbols")) for f in sorted(
+            fs, key=lambda f: (abs(int(f["filed"][:4]) - y + 1), f["filed"]))]
+        cands = [(t, r) for t in own if (r := row_at(t, tiingo, LISTED_FROM, "9999")) and r["startDate"] <= end]
+        cands += [(t, r) for d, s in near for x in norm(s, NOT_SYM) for t in (x, x + "Q")  # INAP -> INAPQ (bankrupt)
+                  if (r := row_at(t, tiingo, d, d)) and overlap(r["startDate"], r["endDate"], e["filed"], end)]
         last = max((f["filed"] for f in fs), default=e["filed"])
-        span = (min((f["filed"] for f in fs), default=e["filed"]), (date.fromisoformat(last) + timedelta(365)).isoformat())
-        i, row = pick_row(cands, tiingo, y, span)
         u = {**{k: e[k] for k in ("year", "name", "sic", "filed")}, "cik": cik, "group": group_of(e["sic"]),
              "last_10k": last, "ticker": "", "tiingo_start": "", "tiingo_end": "", "exchange": "", "status": "unmapped"}
-        if row is None:
-            review.append({**u, "reason": "unmapped", "candidates": "|".join(cands)})
+        if not cands:
+            review.append({**u, "reason": "unmapped", "candidates": "|".join(own + [x for _, s in near for x in norm(s)])})
             best[(y, "?" + cik)] = [(0, u)]
             continue
-        u |= {"ticker": row["ticker"].upper(), "tiingo_start": row["startDate"], "tiingo_end": row["endDate"],
-              "exchange": row["exchange"], "status": "listed" if row["endDate"] >= LISTED_FROM else "delisted"}
-        best.setdefault((y, u["ticker"], row["startDate"]), []).append(((u["ticker"] not in own, i, int(cik)), u))
-    keep = []
-    for lst in best.values():
-        lst.sort(key=lambda p: p[0])
-        keep.append(lst[0][1])
-        review += [{**u, "reason": "duplicate ticker", "candidates": ""} for _, u in lst[1:]]
+        t, row = cands[0]
+        u |= {"ticker": t, "tiingo_start": row["startDate"], "tiingo_end": row["endDate"], "exchange": row["exchange"],
+              "status": "listed" if t in own and row["endDate"] >= LISTED_FROM else "delisted"}
+        best.setdefault((y, t, row["startDate"]), []).append(((t not in own, 0, int(cik)), u))
+    ranked = [[u for _, u in sorted(lst, key=lambda p: p[0])] for lst in best.values()]
+    keep, review = [us[0] for us in ranked], review + [{**u, "reason": "duplicate ticker", "candidates": ""} for us in ranked for u in us[1:]]
     return sorted(keep, key=lambda u: (int(u["year"]), int(u["cik"]))), review
+
+
+def cik_status(rows: list[dict]) -> dict[str, tuple]:
+    """{cik: (status, ticker, tiingo_start)}: listed if any year is listed, else delisted if any, else unmapped."""
+    order = lambda r: ["unmapped", "delisted", "listed"].index(r["status"])  # noqa: E731 - the last write wins
+    return {r["cik"]: (r["status"], r["ticker"], r["tiingo_start"]) for r in sorted(rows, key=order)}
 
 
 def step_map() -> None:
     sub = {r["cik"]: r["tickers"] for r in read_csv(DATA / "companies.csv")}
+    old = cik_status(read_csv(HERE / f"universe{TAG}.csv"))
     rows, review = map_rows(read_csv(DATA / f"eligible{TAG}.csv"), read_csv(DATA / "scores.csv"), sub, load_tiingo())
     write_csv(HERE / f"universe{TAG}.csv", rows, UNI_COLS)
     write_csv(DATA / f"unmapped{TAG}.csv", review, UNI_COLS + ["reason", "candidates"])
     print(f"universe{TAG}.csv: {len(rows)} company-years; review list: {Counter(r['reason'] for r in review)}")
+    new, names = cik_status(rows), {r["cik"]: r["name"] for r in rows}
+    diff = [(c, old.get(c), s) for c, s in sorted(new.items(), key=lambda p: int(p[0])) if old.get(c) != s]
+    stale = [(f"C{c}",) for c, a, _ in diff if a and a[0] == "listed"]  # its Yahoo series came from another ticker
+    print(f"status diff, {len(diff)} CIKs (status, ticker, row start):", *(f"  C{c} {names[c]}: {a} -> {b}" for c, a, b in diff), sep="\n")
+    with db.connect(LAB_DB) as conn:
+        conn.executemany("DELETE FROM prices WHERE ticker = ?", stale)
+    print(f"deleted {len(stale)} stale C{{cik}} price series from lab.db:", " ".join(t for (t,) in stale))
     step_report()
 
 
@@ -165,19 +173,16 @@ def step_facts() -> None:
 
 def tiingo_fetch(todo: list[dict], key: str, store, get=httpx.get, sleep=time.sleep, clock=time.time) -> int:
     """Prioritized delisted prices (adjClose), <=50/h & <=1,000/day, resumable; returns #left (monthly quota stop)."""
-    path = DATA / "tiingo_done.csv"
-    done = read_csv(path)
+    done = read_csv(path := DATA / "tiingo_done.csv")
     seen, stamps = {r["cik"] for r in done}, [float(r["at"]) for r in done]
-    queue = [u for u in todo if str(u["cik"]) not in seen]
-    i = 0
+    queue, i = [u for u in todo if str(u["cik"]) not in seen], 0
     while i < len(queue):
         u, now = queue[i], clock()
         hour, day = [s for s in stamps if now - s < 3600], [s for s in stamps if now - s < 86400]
         if len(hour) >= PER_HOUR or len(day) >= PER_DAY:
             sleep((min(hour) + 3600 if len(hour) >= PER_HOUR else min(day) + 86400) - now + 1)
             continue
-        r = get(TIINGO_PX.format(u["ticker"]), params={"startDate": u["start"], "endDate": u["end"], "token": key},
-                timeout=60)
+        r = get(TIINGO_PX.format(u["ticker"]), params={"startDate": u["start"], "endDate": u["end"], "token": key}, timeout=60)
         stamps.append(clock())
         text = r.text.lower() if r.status_code != 200 else ""
         if "month" in text:
@@ -201,13 +206,9 @@ def price_plan(rows: list[dict]) -> tuple[dict, list[dict]]:
         by[r["cik"]].append(r)
     listed = {c: max((r for r in rs if r["status"] == "listed"), key=lambda r: int(r["year"]))
               for c, rs in by.items() if any(r["status"] == "listed" for r in rs)}
-    todo = []
-    for c, rs in by.items():
-        d = [r for r in rs if r["status"] == "delisted"]
-        if c not in listed and d:
-            t = Counter(r["ticker"] for r in d).most_common(1)[0][0]
-            r = next(r for r in d if r["ticker"] == t)
-            todo.append({"cik": c, "ticker": t, "start": r["tiingo_start"], "end": r["tiingo_end"], "years": len(rs)})
+    todo = [{"cik": c, "ticker": t, "start": r["tiingo_start"], "end": r["tiingo_end"], "years": len(rs)}
+            for c, rs in by.items() if c not in listed and (d := [r for r in rs if r["status"] == "delisted"])
+            for t in [Counter(r["ticker"] for r in d).most_common(1)[0][0]] for r in [next(r for r in d if r["ticker"] == t)]]
     return listed, sorted(todo, key=lambda u: (-u["years"], int(u["cik"])))
 
 
@@ -215,6 +216,7 @@ def step_prices() -> None:
     conn = db.connect(LAB_DB)
     base = {r["cik"] for r in read_csv(HERE / "universe.csv")} if TAG else set()  # robustness: only NEW CIKs
     listed, todo = price_plan([r for r in read_csv(HERE / f"universe{TAG}.csv") if r["cik"] not in base])
+    listed = {c: r for c, r in listed.items() if c not in priced_spans(conn)}  # M10: only new/changed (map deletes)
     bench = [b for b in ("SPY", "QQQ", "SMH") if not conn.execute("SELECT 1 FROM prices WHERE ticker=?", (b,)).fetchone()]
     closes, failed = prices.download(sorted({r["ticker"] for r in listed.values()}) + bench, period="max")
     prices.store(conn, closes[[b for b in bench if b in closes]])
@@ -256,8 +258,7 @@ def coverage(rows: list[dict], review: list[dict], spans: dict) -> str:
 
 
 def step_report() -> None:
-    md = coverage(read_csv(HERE / f"universe{TAG}.csv"), read_csv(DATA / f"unmapped{TAG}.csv"),
-                  priced_spans(db.connect(LAB_DB)))
+    md = coverage(read_csv(HERE / f"universe{TAG}.csv"), read_csv(DATA / f"unmapped{TAG}.csv"), priced_spans(db.connect(LAB_DB)))
     (HERE / f"coverage{TAG}.md").write_text(md)
     print(md)
 

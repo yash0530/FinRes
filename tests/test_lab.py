@@ -111,7 +111,29 @@ def test_unscored_month_goes_equal_weight():
     closes, spy, groups = _closes(n=30)
     ctx = _ctx(closes, spy, groups)
     led = bt.simulate(ctx, CFG, "2016-01", "2026-08")["ledger"]
-    assert led["unscored"].all() and (led["n_buys"] == led["eligible"]).all()
+    assert led["unscored"].all() and (led["n_buys"] + led["n_sells"] >= led["eligible"]).all()
+    assert (led["n_buys"] <= led["eligible"]).all()
+
+
+@pytest.mark.parametrize("pick", ["rank", "ew_trend10", "v1"])
+def test_m10_unscored_month_never_rebuys_a_name_sold_that_month(pick):
+    """F1 (ADR-009a): T00 falls below its 200DMA -> S2 sells it; it is not re-bought that month, and is bought again
+    in every later month where it is eligible and not being sold."""
+    closes, spy, groups = _closes(n=30)
+    path = np.r_[np.full(300, 50.0), np.linspace(50, 25, 20), np.full(130, 25.0), np.linspace(25, 80, 250)]
+    closes["T00"] = path
+    ctx = _ctx(closes, spy, groups)
+    res = bt.simulate(ctx, CFG, "2016-01", "2026-08", pick)
+    assert res["ledger"]["unscored"].all()
+    side = {}
+    for x in res["trades"]:
+        side.setdefault(x["date"], {"sell": set(), "buy": set()})[x["side"]].add(x["ticker"])
+    assert all(not (v["sell"] & v["buy"]) for v in side.values())
+    sold = [d for d, v in side.items() if "T00" in v["sell"]]
+    assert sold and any(d > sold[0] and "T00" in v["buy"] for d, v in side.items())  # re-entered later
+    for t in bt._months(ctx, "2016-01", "2026-08"):
+        v = side.get(ctx["exec"][t], {"sell": set(), "buy": set()})
+        assert ("T00" in v["buy"]) == ("T00" in ctx["elig"][t] and "T00" not in v["sell"])
 
 
 def test_random_xirrs_reproducible_across_workers():

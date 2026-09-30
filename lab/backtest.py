@@ -231,8 +231,8 @@ def simulate(ctx: dict, cfg: dict, start: str, end: str, pick: str = "rank", rng
         for s in sells:
             positions.pop(s["ticker"])
         n = None  # buy_list's budget only sizes its dicts; the names do not depend on it
-        if unscored or pick == "ew_all":
-            names = list(el)
+        if unscored or pick == "ew_all":  # M10/F1 (ADR-009a): never re-buy a name in the month it is sold
+            names = [k for k in el if k not in {s["ticker"] for s in sells}]
         elif pick == "ew_trend":
             names = [k for k in el if bool(ctx["fac"][t].at[k, "trend"])]
         elif pick == "ew_trend10":  # the app's shipped rule (ADR-005), same code path

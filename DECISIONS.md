@@ -300,3 +300,27 @@ The frozen keyword threshold (≥ 5 per 10k words) made the point-in-time univer
 - If you want individual stocks, "buy equal amounts of every uptrend name and don't sell on trend breaks" is at least as well supported as the current exits.
 - The simplest robust choice is SMH.
 - Watch the shadow portfolios before changing anything.
+
+## ADR-009a: Review #2 fixes and the corrected verdict (2026-09-30)
+An independent review (agy) found three bugs. The TL verified each against the data; kiro fixed them and re-ran every hindsight-free phase.
+- **F1: same-month sell-and-rebuy.** In thin, unscored months, the lab sold a name on its trend exit and re-bought it the same day. This affected 748 of 950 sells.
+  - Fix: a name sold this month is never re-bought that month.
+  - The app now applies the same rule: a name on the Sell list is never in that month's buy list.
+- **F2: wrong company's prices.** Filing-text symbols such as "CRSP" (an index name) mapped dead companies to live tickers: Cray was priced as CRISPR, Rockley Photonics as Worthington Steel, and so on.
+  - Fix: a company counts as "listed" only through its *current SEC ticker*.
+  - 16 statuses changed. Wrongly priced series were deleted; those companies became stress-test names.
+- **F4: shadow ledgers and splits.** Shadow ledgers stored shares, which break when prices are re-adjusted after a split.
+  - Fix: store the monthly decisions and replay them at current adjusted prices, which is split-proof.
+- **Documented, not re-engineered:**
+  - H2's in-sample test was a *null test*, because all 96 months were unscored, so H2 is **inconclusive**. B0R stays.
+  - The stress clones' death dates come from after t (a stress assumption, not a signal).
+
+**Corrected H1** (2010–2026 XIRR):
+
+| | Rule | EW-hold | SMH DCA |
+|---|---|---|---|
+| Priced names | **26.6%** | **44.2%** | **29.7%** |
+| With stress test | 25.6% | 41.2% | 29.7% |
+| Broader universe (R-A) | 29.5% | 36.5% | 29.7% |
+
+**The ADR-009 verdict stands:** without hindsight, the rule does not beat SMH, and it trails equal-weight hold. The review's claim that the fix lifts the rule to 32.5% did not reproduce: F1 alone gives 26.1%. That claim most likely came from its other suggestion (no trend sells in thin months), which drifts toward EW-hold.

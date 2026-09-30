@@ -44,15 +44,15 @@ def test_recycled_ticker_resolved_by_filing_dates_and_unmapped_kept():
     scores = [_score(10, "x1", "2015-02-10", symbols="SNDK"), _score(20, "y1", "2025-08-01", symbols="SNDK"),
               _score(30, "z1", "2012-02-01", symbols="OLD"), _score(40, "w1", "2012-02-01", symbols="NOPE"),
               _score(50, "a1", "2013-02-01", symbols="ALTR"), _score(50, "a2", "2016-02-01", symbols="ALTR"),
-              _score(60, "b1", "2016-12-01", symbols="ALTR"), _score(60, "b2", "2024-02-01", symbols="ALTR")]
+              _score(60, "b1", "2017-12-01", symbols="ALTR"), _score(60, "b2", "2024-02-01", symbols="ALTR")]
     elig = build.eligible(scores)
     rows, review = build.map_rows(elig, scores, {"20": "SNDK"}, tiingo)
     by = {(r["cik"], r["year"]): r for r in rows}
     by |= {r["cik"]: r for r in rows}
     assert (by["10"]["tiingo_start"], by["10"]["status"]) == ("1995-11-08", "delisted")  # old SanDisk
     assert (by["20"]["tiingo_start"], by["20"]["status"]) == ("2025-02-24", "listed")  # new SanDisk
-    assert by[("50", 2017)]["tiingo_start"] == "1988-04-04"  # both ALTR rows overlap 2017: filing dates decide
-    assert by[("60", 2017)]["tiingo_start"] == "2017-11-01"
+    assert by[("50", 2017)]["tiingo_start"] == "1988-04-04"  # M10: the row covering THAT filing's date decides
+    assert by[("60", 2018)]["tiingo_start"] == "2017-11-01" and by["60"]["status"] == "delisted"
     assert by["30"]["ticker"] == "OLDQ" and by["30"]["exchange"] == "NASDAQ"  # bankrupt-suffix fallback
     assert by["40"]["status"] == "unmapped" and by["40"]["ticker"] == ""
     assert [(r["cik"], r["reason"]) for r in review] == [("40", "unmapped")]
@@ -69,6 +69,26 @@ def test_map_falls_back_to_other_filings_then_submissions_and_drops_duplicates()
     assert got[(2015, "1")] == "META"  # FB has no Stock row; the company's later filing says META
     assert got[(2015, "2")] == "SO" and (2015, "3") not in got  # subsidiary on the parent's ticker dropped
     assert [(r["cik"], r["reason"]) for r in review] == [("3", "duplicate ticker")]
+
+
+def test_m10_listed_only_via_current_sec_ticker_and_index_words_never_map():
+    """F2: Cray's 10-Ks cite the "CRSP Total Return Index"; CRSP (CRISPR) must never attach to it."""
+    tiingo = build.load_tiingo("ticker,exchange,assetType,priceCurrency,startDate,endDate\n"
+                               "CRSP,NASDAQ,Stock,USD,2016-10-19,2026-09-29\nCRAY,NASDAQ,Stock,USD,1995-09-27,2019-09-25\n"
+                               "NVDA,NASDAQ,Stock,USD,1999-01-22,2026-09-29\nNVDAW,NASDAQ,Stock,USD,1999-01-22,2026-09-29\n"
+                               "ZZZ,NYSE,Stock,USD,2000-01-03,2026-09-29\n")
+    assert "CRSP" not in scan.symbols("compared with the CRSP Nasdaq Computer Index and the CRSP Nasdaq US Index")
+    scores = [_score(1, "c1", "2016-02-01", symbols="CRAY|CRSP"), _score(1, "c2", "2019-02-12", symbols="CRSP"),
+              _score(2, "k1", "2018-02-01", symbols="CRSP"),  # its own ticker is gone: only the index word is left
+              _score(3, "n1", "2017-02-01", symbols="NVDA"), _score(4, "z1", "2017-02-01", symbols="ZZZ")]
+    rows, review = build.map_rows(build.eligible(scores), scores, {"1": "", "3": "NVDAW|NVDA", "4": ""}, tiingo)
+    by = {(r["cik"], r["year"]): r for r in rows}
+    assert [(by[("1", y)]["ticker"], by[("1", y)]["status"]) for y in (2017, 2020)] == [("CRAY", "delisted")] * 2
+    assert by[("2", 2019)]["status"] == "unmapped" and by[("2", 2019)]["ticker"] == ""
+    assert (by[("3", 2018)]["ticker"], by[("3", 2018)]["status"]) == ("NVDA", "listed")  # current SEC ticker, not its warrant
+    assert (by[("4", 2018)]["ticker"], by[("4", 2018)]["status"]) == ("ZZZ", "delisted")  # no SEC ticker: never listed
+    listed, todo = build.price_plan(rows)
+    assert list(listed) == ["3"] and {u["cik"] for u in todo} == {"1", "4"}
 
 
 def test_price_plan_prioritizes_delisted_by_eligible_years():
@@ -131,3 +151,26 @@ def test_coverage_counts_priced_share():
     rows = [{"year": "2012", "cik": "1", "status": "listed"}, {"year": "2012", "cik": "2", "status": "unmapped"}]
     md = build.coverage(rows, [{"year": "2012", "reason": "duplicate ticker"}], {"1": ("2011-05-01", "2026-09-01")})
     assert "| 2012 | 3 | 2 | 1 | 0 | 1 | 1 | 1 | 1 | 50% |" in md
+
+
+def test_m10_step_map_prints_status_diff_and_deletes_stale_listed_series(tmp_path, monkeypatch, capsys):
+    from finres import db
+    for k, v in {"DATA": tmp_path, "HERE": tmp_path, "LAB_DB": tmp_path / "lab.db", "TAG": ""}.items():
+        monkeypatch.setattr(build, k, v)
+    monkeypatch.setattr(build, "load_tiingo", lambda load=build.load_tiingo: load(
+        "ticker,exchange,assetType,priceCurrency,startDate,endDate\nCRSP,NASDAQ,Stock,USD,2016-10-19,2026-09-29\n"
+        "CRAY,NASDAQ,Stock,USD,1995-09-27,2019-09-25\n"))
+    scores = [_score(949158, "c1", "2017-02-01", symbols="CRSP|CRAY")]
+    scan.write_csv(tmp_path / "scores.csv", scores, list(scores[0]))
+    scan.write_csv(tmp_path / "companies.csv", [{"cik": "949158", "tickers": ""}], ["cik", "tickers"])
+    scan.write_csv(tmp_path / "eligible.csv", build.eligible(scores, {"949158": "CRAY INC"}), build.ELIG_COLS)
+    old = [{"year": "2018", "cik": "949158", "name": "CRAY INC", "ticker": "CRSP", "tiingo_start": "2016-10-19",
+            "status": "listed"}]
+    scan.write_csv(tmp_path / "universe.csv", old, build.UNI_COLS)
+    conn = db.connect(tmp_path / "lab.db")
+    build.prices.store(conn, pd.DataFrame({"C949158": [1.0, 2.0], "SPY": [3.0, 4.0]},
+                                          index=pd.to_datetime(["2018-01-02", "2018-01-03"])))
+    build.step_map()
+    out = capsys.readouterr().out
+    assert "C949158 CRAY INC: ('listed', 'CRSP', '2016-10-19') -> ('delisted', 'CRAY', '1995-09-27')" in out
+    assert [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM prices")] == ["SPY"]
