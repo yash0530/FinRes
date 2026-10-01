@@ -180,6 +180,39 @@ def test_h3_phase_and_report_on_synthetic(monkeypatch, tmp_path):
     assert "## ADR-011: B0H vs B0R" in (tmp_path / "REPORT.md").read_text()
 
 
+def test_h1q_phase_and_report_on_synthetic(monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+    from lab import run
+    closes, spy, groups = _closes()
+    bench = pd.DataFrame({"SPY": spy, "QQQ": spy * 1.1, "SMH": spy * 0.9})
+    ctx = bt.build_ctx(closes, spy, groups, start="2016-01", end="2026-08", bench=bench)
+    ctx |= {"tickers": list(closes.columns), "members": None}
+    labels = []
+    monkeypatch.setattr(run, "load_ctx", lambda label, *a, **k: labels.append(label) or ctx)
+    for k, v in {"RESULTS": tmp_path, "LAB": tmp_path, "PIT": tmp_path, "DATA": tmp_path, "H1": ("2016-01", "2017-09")}.items():
+        monkeypatch.setattr(run, k, v)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "qwen_class.csv").write_text("acc,sells_into\na1,True\n")
+    (tmp_path / "data" / "business.csv").write_text("acc\na1\na2\n")
+    (tmp_path / "ctx_ai_pit_q.pkl").write_bytes(b"stale")
+    (tmp_path / "DECISIONS.md").write_text("")
+    args = SimpleNamespace(force=False, smoke=False)
+    run.phase_h1q(args)
+    h1q = json.loads((tmp_path / "h1q.json").read_text())
+    assert labels == list(run.H1Q) and not (tmp_path / "ctx_ai_pit_q.pkl").exists()  # stale cache dropped
+    assert (h1q["partial"], h1q["classified"], h1q["filings"]) == (True, 1, 2)
+    for k in run.H1Q:
+        assert [r["name"] for r in h1q[k]["rows"]] == [run.B0R, "B0H", run.EWN, "DCA SMH", "DCA QQQ"]
+        assert {"xirr", "cagr", "maxdd", "sharpe", "unscored_months"} <= set(h1q[k]["rows"][0])
+        assert h1q[k]["names"] == 60 and "2016" in h1q[k]["eligible_by_year"]
+    with pytest.raises(SystemExit):
+        run.phase_h1q(args)  # write-once
+    run.phase_report(args)
+    md = (tmp_path / "REPORT.md").read_text()
+    assert "## ADR-010: Qwen-cleaned universe (context only)" in md and "**PARTIAL" in md and "ai_pit_ra_q_stress" in md
+
+
 def test_random_xirrs_reproducible_across_workers():
     closes, spy, groups = _closes()
     ctx = _ctx(closes, spy, groups)

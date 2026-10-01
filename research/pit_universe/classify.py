@@ -1,5 +1,6 @@
 """ADR-010 Qwen-cleaned PIT universe. CLI: python -m research.pit_universe.classify {extract|validate|run|universe}"""
 import argparse, gzip, json, re, time  # noqa: E401
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -11,7 +12,8 @@ from research.pit_universe.scan import (DATA, GROUPS, HERE, NOT_SYM, WORKERS, fe
 
 BIZ = DATA / "business"
 WORDS, TIMEOUT, PROMPT_VERSION = 1500, 300, "v1"
-MAN_COLS, CLASS_COLS = ["acc", "cik", "filed", "words", "method"], ["acc", "cik", "filed", "sells_into", "role", "confidence", "seconds"]
+MAN_COLS = ["acc", "cik", "filed", "words", "method"]
+CLASS_COLS = ["acc", "cik", "filed", "sells_into", "role", "confidence", "seconds", "evidence"]  # evidence: rows from 2026-10
 VAL_COLS = ["cik", "name", "year", "acc", "truth", "sells_into", "role", "confidence", "evidence", "seconds", "prompt"]
 ROLES = "compute semis_equipment memory_storage networking datacenter_infra power_energy cloud ai_software none".split()
 CONF = ["low", "medium", "high"]
@@ -132,7 +134,7 @@ def parse(content: str) -> dict:
     if not isinstance(d, dict) or set(d) != set(SCHEMA["required"]) or not isinstance(d["sells_into"], bool) \
             or d["role"] not in ROLES or d["confidence"] not in CONF or not isinstance(d["evidence"], str):
         raise ValueError(f"reply does not match the schema: {str(d)[:200]}")
-    return d | {"evidence": d["evidence"][:200]}
+    return d | {"evidence": " ".join(d["evidence"].split())[:200]}  # one line: the watchdog counts rows with wc -l
 
 
 def classify(text: str, post=httpx.post) -> dict:
@@ -236,11 +238,15 @@ def filter_universe(rows: list[dict], scores: list[dict], cls: list[dict]) -> li
 
 def step_universe() -> None:
     scores, cls = read_csv(DATA / "scores.csv"), read_csv(DATA / "qwen_class.csv")
+    n, done = len(read_csv(DATA / "business.csv")), (DATA / "classify.done").exists()
+    print(f"classified {len(cls)}/{n} filings" + ("" if done else " - PARTIAL: classify run not finished"))
     for tag in ("", "_ra"):
         rows = read_csv(HERE / f"universe{tag}.csv")
         keep = filter_universe(rows, scores, cls)
         write_csv(HERE / f"universe{tag}_q.csv", keep, list(rows[0]) if rows else [])
         print(f"universe{tag}_q.csv: {len(keep)}/{len(rows)} company-years, {len({r['cik'] for r in keep})} CIKs")
+        before, after = Counter(r["year"] for r in rows), Counter(r["year"] for r in keep)
+        print("  year: before -> after Qwen |", " ".join(f"{y}: {before[y]}->{after[y]}" for y in sorted(before)))
 
 
 def main(argv=None) -> None:

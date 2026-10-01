@@ -146,7 +146,7 @@ def test_dictionary_frozen_and_research_budget():
     assert "FROZEN" in d["_note"] and set(scan.GROUPS) <= set(d)
     n = sum(1 for p in (ROOT / "research").rglob("*.py")
             for line in p.read_text().splitlines() if line.strip() and not line.strip().startswith("#"))
-    assert n <= 650
+    assert n <= 750  # ADR-008 v2 addendum (TL); same limit as tests/test_budget.py
 
 
 def test_app_never_imports_research():

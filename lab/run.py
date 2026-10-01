@@ -31,6 +31,7 @@ H1, REV_FLOOR, STRESS_PAD = ("2010-01", "2026-08"), 100e6, 280  # ADR-007
 RULE, EWN = "rule (ew_trend10)", "EW (ew_all)"
 H2_IS, H2_OOS, VARS, B0R = ("2010-01", "2017-12"), ("2018-01", "2026-08"), ("V1", "V2", "V3"), "B0R"  # ADR-007 H2
 ROBUST = ("ai_pit_ra", "ai_pit_rb")  # ADR-007a: R-A threshold 2; R-B compute + network groups only
+H1Q = ("ai_pit_q", "ai_pit_q_stress", "ai_pit_ra_q", "ai_pit_ra_q_stress")  # ADR-010: universe[_ra]_q.csv, context only
 H3 = {"ai": OOS, "ai_pit": H1, "ai_pit_stress": H1, "ai_pit_ra": H1, "sp500": FULL}  # ADR-011's five test sets
 
 
@@ -456,6 +457,24 @@ def phase_h3(args) -> None:
     _write(path, out, True)
 
 
+def phase_h1q(args) -> None:
+    """ADR-010 (reported only, never a selection): B0R, B0H, EW hold, SMH/QQQ DCA on the Qwen-cleaned universes."""
+    path, (a, b), q = _fresh("h1q.json", args), H1, PIT / "data"
+    [p.unlink() for p in DATA.glob("ctx_ai_pit*_q*.pkl")]  # the classifications may have grown since the cache
+    n = lambda f: len(list(csv.DictReader(open(q / f, newline="")))) if (q / f).exists() else 0  # noqa: E731
+    out = {"period": H1, "note": "ADR-010: reported only, never used for selection", "partial": not (
+        q / "classify.done").exists(), "classified": n("qwen_class.csv"), "filings": n("business.csv")}
+    for label in H1Q:
+        ctx = load_ctx(label, start=a, end=b)
+        ew = bt.simulate(ctx, {}, a, b, "ew_all")["ledger"]
+        led = {B0R: bt.simulate(ctx, {}, a, b, "ew_trend10")["ledger"], "B0H": bt.simulate(ctx, {}, a, b, "b0h")["ledger"],
+               EWN: ew, **{f"DCA {k}": bt.dca(ctx, k, a, b) for k in ("SMH", "QQQ")}}
+        out[label] = {"rows": [row(k, {"ledger": v}, ew) for k, v in led.items()], "names": len(ctx["tickers"]),
+                      "eligible_by_year": eligible_by_year(ctx, a, b)}
+        print(label, " | ".join(f"{r['name']} {r['xirr']:.1%} dd {r['maxdd']:.1%}" for r in out[label]["rows"]))
+    _write(path, out, True)
+
+
 # ---------- report ----------
 
 def _p(x) -> str:
@@ -602,6 +621,25 @@ def phase_report(args) -> None:
                *_table([{**r, "name": f"{k} · {r['name']}"} for k, s in h3["sets"].items() for r in s["rows"]]), "",
                f"**Decision: {'switch to B0H' if h3['switch'] else 'B0R stays'}.** B0H runs as a forward shadow "
                "portfolio either way.", ""]
+    h1q = load("h1q.json")
+    if h1q:
+        kw = {k: next((r["xirr"] for r in (src or {}).get(k.replace("_q", ""), {}).get("rows", []) if r["name"] == RULE),
+                      None) for k, src in zip(H1Q, (h1, h1, rob, rob))}
+        md += ["## ADR-010: Qwen-cleaned universe (context only)", "Reported, never used for selection. Universe = the "
+               "keyword-eligible company-years (base, R-A) whose 10-K local Qwen classifies `sells_into` = true "
+               f"(`research/pit_universe/universe[_ra]_q.csv`), then the same PIT revenue floor and stress clones. "
+               f"{h1q['period'][0]}→{h1q['period'][1]}; Qwen classified {h1q['classified']}/{h1q['filings']} filings.", "",
+               *([f"**PARTIAL: the classification run had not finished ({h1q['classified']}/{h1q['filings']}); "
+                  "unclassified filings are excluded, so these numbers are a smoke run, not the result.**", ""]
+                 if h1q["partial"] else []),
+               "| Universe | names | strategy | XIRR | CAGR | MaxDD | Sharpe | unscored months |", "|---" * 8 + "|",
+               *[f"| {k} | {h1q[k]['names']} | {r['name']} | {_p(r['xirr'])} | {_p(r['cagr'])} | {_p(r['maxdd'])} | "
+                 f"{r['sharpe']:.2f} | {r['unscored_months']} |" for k in H1Q for r in h1q[k]["rows"]], "",
+               "Same rule (B0R) on the keyword-only universe: " + "; ".join(f"{k.replace('_q', '')} {_p(v)}"
+                                                                          for k, v in kw.items()) + ".", "",
+               "Eligible names per month-end (min / median / max):", "| Year | " + " | ".join(H1Q) + " |", "|---" * 5 + "|",
+               *[f"| {y} | " + " | ".join(str(h1q[k]["eligible_by_year"].get(y)) for k in H1Q) + " |"
+                 for y in h1q[H1Q[0]]["eligible_by_year"]], ""]
     md += ["## Bug-fix log", "",
            "- 2026-09-30 (ADR-009a, review #2): F1: in unscored months (< 40 eligible) the simulator sold S2 trend "
            "failures and re-bought them at the same fill (equal weight into all eligible): 748 of 950 H1 rule sells were "
@@ -631,7 +669,7 @@ def phase_report(args) -> None:
 def main(argv=None) -> None:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m lab.run")
-    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "h2", "h1r", "h3", "report"])
+    ap.add_argument("phase", choices=["data", "sanity", "is", "oos", "fidelity", "h1", "h2", "h1r", "h3", "h1q", "report"])
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="is only: 60 AI tickers, 2015-2016, writes to /tmp")
     args = ap.parse_args(argv)

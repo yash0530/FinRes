@@ -35,3 +35,38 @@ Never imported by the app.
 - **Facts** are fetched for every eligible CIK, mapped or not (the stress test applies the revenue floor to unpriced names too). No us-gaap facts (404/IFRS) → the $100M floor can't be applied → never a member.
 - **Prices** are stored as `C{cik}` so a recycled ticker can't collide. Listed → Yahoo `period="max"`, kept from `tiingo_start`. Delisted → Tiingo `adjClose` (≤ 50/h, ≤ 1,000/day, resumable via `data/tiingo_done.csv`, most eligible years first, stops cleanly on the monthly-quota error). No `TIINGO_API_KEY` → Tiingo is skipped and every delisted CIK is listed in `data/unpriced.csv`. Yahoo has no delisted tickers.
 - The lab (`python -m lab.run h1`) reads `universe.csv`, `data/facts/` and the `C{cik}` prices; unpriced company-years enter only the delisting **stress test** (`lab/run.py stress_closes`).
+
+## classify.py — Qwen-cleaned universe (ADR-010)
+
+```bash
+.venv/bin/python -m research.pit_universe.classify extract    # Item 1 excerpts (anonymized) -> data/business/, business.csv  (~13 min, 210/min)
+.venv/bin/python -m research.pit_universe.classify validate   # 30 hand-judged filings -> classify_validation.md
+.venv/bin/python -m research.pit_universe.classify run        # local Qwen, one call at a time, resumable -> data/qwen_class.csv (~12.6 s/filing; 2,631 ≈ 9 h)
+.venv/bin/python -m research.pit_universe.classify universe   # -> universe_q.csv, universe_ra_q.csv + per-year counts before/after
+.venv/bin/python -m lab.run h1q --force && .venv/bin/python -m lab.run report   # ADR-010 section of lab/REPORT.md
+```
+
+- `run` needs Qwen up (`llm-serve start splash4`). Rows from 2026-10 on carry Qwen's `evidence` phrase (one line); earlier rows show "—".
+- `extract` targets the filings behind the base and R-A company-years 2010–2026 (10-Ks filed 2009–2025). The yearly review adds the newest year's filings itself (`review --extract`).
+
+## review.py — the once-a-year universe review (ADR-010 D)
+
+Goal: don't miss a new AI winner. Each autumn, once most 10-Ks for the year are filed (example for 2027; `Y` = the year):
+
+```bash
+# 1. scan the new filings. First set scan.LAST = (Y, 3); delete data/sub/ so current tickers are fresh.
+.venv/bin/python -m research.pit_universe.scan index           # new quarters only (~1 min)
+.venv/bin/python -m research.pit_universe.scan sic             # submissions per CIK (~45 min at 7/s with data/sub/ deleted; seconds if cached)
+.venv/bin/python -m research.pit_universe.scan score --year Y  # ~1,100 in-group 10-Ks (~6 min at 220/min)
+# 2. classify only that year's filings that pass the other three conditions, plus the members' 10-Ks
+.venv/bin/python -m research.pit_universe.review --year Y --extract   # Item 1 excerpts (~2 min); fetches missing companyfacts
+.venv/bin/python -m research.pit_universe.classify run                # Qwen, ~12.6 s each (~200-300 filings ≈ 1 h)
+# 3. review and edit by hand
+.venv/bin/python -m research.pit_universe.review --year Y             # -> review_Y.md (seconds)
+```
+
+- **Candidate** = the CIK's latest 10-K filed in `Y` is R-A keyword-eligible (in-group SIC, ≥ 2 hits per 10k words; utilities/uranium: power hits), Qwen `sells_into` = true, PIT TTM revenue ≥ $100M (SEC companyfacts as of min(today, Y-12-31)), and its current SEC ticker is in no `universe.toml` category. Sorted by revenue.
+- **Suggested category** from Qwen's role: compute → compute, semis_equipment → equipment, memory_storage → memory, networking → networking, datacenter_infra → datacenter, power_energy → power (SIC 49xx) or grid, cloud → hyperscalers (revenue ≥ $50B) or software, ai_software → software.
+- **Removal review** (informational): members whose latest `Y` 10-K Qwen classifies `sells_into` = false.
+- Filings not yet classified are listed at the top of `review_Y.md`. Nothing edits `universe.toml`: you do, by hand (new ideas → SOMEDAY.md first if unsure).
+- Don't run `--extract` while a `classify run` is active: it appends to `business.csv`.

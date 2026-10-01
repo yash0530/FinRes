@@ -143,3 +143,70 @@ def test_report_counts_agreement():
              "confidence": "low", "evidence": "a|b", "seconds": "20"}]
     md = c.report(rows)
     assert "1/2 = 50%" in md and "15.0 s per call" in md and "| truth false | 1 | 0 |" in md and "a/b" in md
+
+
+def test_parse_evidence_is_one_line():
+    good = {"sells_into": True, "role": "compute", "confidence": "high", "evidence": "sells\nGPUs\r\n to  clouds"}
+    assert c.parse(json.dumps(good))["evidence"] == "sells GPUs to clouds"  # the watchdog counts rows with wc -l
+
+
+def test_step_universe_writes_q_files_and_counts(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(c, "DATA", tmp_path)
+    monkeypatch.setattr(c, "HERE", tmp_path)
+    scan.write_csv(tmp_path / "scores.csv", [{"cik": "1", "acc": "x1", "filed": "2014-03-01"},
+                                             {"cik": "2", "acc": "y1", "filed": "2014-04-01"}], ["cik", "acc", "filed"])
+    scan.write_csv(tmp_path / "qwen_class.csv", [{"acc": "x1", "sells_into": "True"}, {"acc": "y1", "sells_into": "False"}],
+                   ["acc", "sells_into"])
+    rows = [{"year": "2015", "cik": "1", "filed": "2014-03-01"}, {"year": "2015", "cik": "2", "filed": "2014-04-01"}]
+    for tag in ("", "_ra"):
+        scan.write_csv(tmp_path / f"universe{tag}.csv", rows, ["year", "cik", "filed"])
+    c.step_universe()
+    assert [r["cik"] for r in scan.read_csv(tmp_path / "universe_ra_q.csv")] == ["1"]
+    out = capsys.readouterr().out
+    assert "PARTIAL" in out and "2015: 2->1" in out
+
+
+# ---------- review.py (ADR-010 D) ----------
+
+def _sc(cik, acc, filed, sic="3674", words=10000, in_group="1", **hits):
+    return {"cik": cik, "acc": acc, "filed": filed, "sic_filing": sic, "words": str(words), "in_group": in_group,
+            **{f"hits_{g}": str(hits.get(g, 0)) for g in scan.GROUPS}}
+
+
+def test_review_category_mapping():
+    from research.pit_universe.review import category
+    assert [category(r, "3674", 1e9) for r in ("compute", "semis_equipment", "memory_storage", "networking",
+                                                 "datacenter_infra", "ai_software")] == [
+        "compute", "equipment", "memory", "networking", "datacenter", "software"]
+    assert (category("power_energy", "4911", 1e9), category("power_energy", "3612", 1e9)) == ("power", "grid")
+    assert (category("cloud", "7372", 60e9), category("cloud", "7372", 2e9)) == ("hyperscalers", "software")
+
+
+def test_review_candidates_need_all_four_conditions():
+    from research.pit_universe import review as rv
+    scores = [_sc("1", "a0", "2026-02-01", ai=1), _sc("1", "a1", "2026-03-01", ai=3),  # latest 2026 filing wins
+              _sc("2", "b1", "2026-02-01", ai=3), _sc("3", "c1", "2026-02-01", ai=1),  # 3: score 1 < 2
+              _sc("4", "d1", "2026-02-01", ai=3), _sc("5", "e1", "2026-02-01", ai=3),  # 4: revenue; 5: Qwen false
+              _sc("6", "f1", "2026-02-01", ai=3), _sc("7", "g1", "2026-02-01", ai=3),  # 6: no ticker; 7: member
+              _sc("8", "h1", "2026-02-01", ai=3), _sc("9", "i1", "2025-02-01", ai=3),  # 8: unclassified; 9: 2025
+              _sc("10", "j1", "2026-02-01", sic="4911", power=1, ai=9), _sc("11", "k1", "2026-02-01", ai=9, in_group="0"),
+              _sc("12", "l1", "2026-02-01", sic="4911", power=3), _sc("13", "m1", "2026-02-01", ai=1)]  # 13: member
+    filings = rv.latest(scores, 2026)
+    assert filings["1"]["acc"] == "a1" and "9" not in filings
+    yes = {"sells_into": "True", "role": "cloud", "evidence": "rents GPUs"}
+    cls = {a: yes for a in ("a1", "b1", "c1", "d1", "f1", "j1", "k1", "l1")} | {
+        "e1": yes | {"sells_into": "False"}, "g1": yes | {"sells_into": "False"}, "m1": yes | {"sells_into": "False"},
+        "l1": yes | {"role": "power_energy"}}
+    companies = {str(i): {"name": f"Co{i}", "tickers": f"T{i}" if i != 6 else ""} for i in range(1, 14)}
+    companies["7"]["tickers"], companies["13"]["tickers"] = "GOOGL|GOOG", "nvda"
+    rev = {"1": 2e9, "2": 80e9, "4": 50e6}
+    cands, removals, pending = rv.review(filings, cls, companies, {"GOOG": "hyperscalers", "NVDA": "compute"},
+                                         lambda k: rev.get(k, 1e9))
+    assert [r["ticker"] for r in cands] == ["T2", "T1", "T12"]  # revenue desc
+    assert [r["category"] for r in cands] == ["hyperscalers", "software", "power"]
+    assert cands[1]["score"] == 3.0 and cands[1]["evidence"] == "rents GPUs"
+    assert [(r["ticker"], r["category"]) for r in removals] == [("GOOG", "hyperscalers"), ("NVDA", "compute")]
+    assert [r["ticker"] for r in pending] == ["T8"]
+    md = rv.markdown(2026, cands, removals, pending, partial=True)
+    assert "PARTIAL" in md and "| T2 | Co2 | 3674 | cloud | hyperscalers | $80.00B | rents GPUs | 3.0 |" in md
+    assert "**1 filings pass" in md and "## Members to review for removal (2" in md
