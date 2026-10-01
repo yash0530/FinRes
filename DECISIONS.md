@@ -353,3 +353,7 @@ An independent review (agy) found three bugs. The TL verified each against the d
 
 If either condition fails on any set, B0R stays. Either way, B0H is added to the forward shadow portfolios. This single comparison is the only test in ADR-011.
 - *Addendum (2026-09-30, v2):* the research budgets rise to **lab ≤ 950** and **research ≤ 750**, for the ADR-010 classifier, the Qwen-cleaned H1, and the yearly universe review. The **app stays ≤ 1,500**. Both stay research code that the app never imports.
+- *ADR-010 addendum (2026-10-01, review #3), known limits, documented rather than fixed mid-run:*
+  - Anonymization strips legal names and tickers but not short brand forms. "Veeva", "Extreme", "COPT" and company web domains leak in about half of the validation excerpts.
+  - 190 excerpts (7%) fell back to the post-cover text, often a table of contents.
+  - Validation still passed at 90%. Changing the anonymizer would invalidate the running classification, so the Qwen-cleaned results are read with this caveat. They are context only and never used for selection.
